@@ -24,10 +24,10 @@ fi
 # Increasing the local build version invalidates WidgetKit's previous archives.
 # Keep the upstream marketing/build version out of source control changes.
 version=$(date +%Y%m%d%H%M%S)
-xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
+xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Release \
     -destination 'platform=macOS' -derivedDataPath "$derived" \
     -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$version" build
-product="$derived/Build/Products/Debug/Itsycal.app"
+product="$derived/Build/Products/Release/Itsycal.app"
 codesign --verify --deep --strict "$product"
 
 stage=$(mktemp -d '/Applications/.itsycal-week-install.XXXXXX')

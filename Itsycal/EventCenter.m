@@ -10,6 +10,7 @@
 #import <AppKit/NSWorkspace.h>
 #import "EventCenter.h"
 #import "WeekSnapshot.h"
+#import "Itsycal.h"
 
 // NSUserDefaults key for array of selected calendar IDs.
 static NSString *kSelectedCalendars = @"SelectedCalendars";
@@ -37,6 +38,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     dispatch_queue_t      _queueIsol;
     dispatch_queue_t      _queueIsol2;
     NSDateInterval       *_weekInterval;            // _queueWork
+    NSInteger             _weekStartDOW;            // _queueWork
 }
 
 - (instancetype)initWithCalendar:(NSCalendar *)calendar delegate:(id<EventCenterDelegate>)delegate {
@@ -182,7 +184,8 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
 
 - (void)_fetchWeekAndPublish
 {
-    _weekInterval = WeekSnapshotInterval(NSDate.date);
+    _weekStartDOW = MIN(MAX([[NSUserDefaults standardUserDefaults] integerForKey:kWeekStartDOW], 0), 6);
+    _weekInterval = WeekSnapshotInterval(NSDate.date, _weekStartDOW);
     [self _fetchEventsWithStartDate:MakeDateWithNSDate(_weekInterval.startDate, _cal)
                           endDate:MakeDateWithNSDate(_weekInterval.endDate, _cal) refetch:NO];
     [self _filterEvents];
@@ -397,7 +400,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
             }
         }
     }
-    if (_weekInterval) PublishWeekSnapshot(filteredEventsForDate, self, _weekInterval);
+    if (_weekInterval) PublishWeekSnapshot(filteredEventsForDate, self, _weekInterval, _weekStartDOW);
     // Notify the delegate from inside the _queueIsol block so the
     // write to _filteredEventsForDate is visible before the delegate
     // reads it back via -filteredEventsForDate.

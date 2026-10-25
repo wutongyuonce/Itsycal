@@ -1,11 +1,13 @@
 #import <AppKit/AppKit.h>
 #import "EventCenter.h"
 #import "WeekSnapshot.h"
+#import "Itsycal-Swift.h"
 
-// Exercise the real grouping/cache code with an in-memory store. No permission
-// prompt or personal calendar query occurs, and no widget snapshot is written.
-NSDateInterval *WeekSnapshotInterval(NSDate *date) { return nil; }
-void PublishWeekSnapshot(NSDictionary *events, EventCenter *center, NSDateInterval *interval) {}
+// Exercise the real grouping and week-interval code with an in-memory store.
+// No permission prompt or personal calendar query occurs, and no snapshot is written.
+@implementation WeekWidgetReloader
++ (void)reload {}
+@end
 
 @interface MemoryStore : EKEventStore
 @property NSArray<EKEvent *> *fixtures;
@@ -41,6 +43,15 @@ int main(void) {
     @autoreleasepool {
         NSCalendar *cal = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
         cal.timeZone = [NSTimeZone timeZoneWithName:@"Asia/Shanghai"];
+        NSDate *thursday = [cal dateWithEra:1 year:2026 month:10 day:22 hour:12 minute:0 second:0 nanosecond:0];
+        NSDate *start = [cal dateWithEra:1 year:2026 month:10 day:21 hour:0 minute:0 second:0 nanosecond:0];
+        NSDate *end = [cal dateByAddingUnit:NSCalendarUnitDay value:14 toDate:start options:0];
+        NSDateInterval *wednesdayWeek = WeekSnapshotInterval(thursday, 3);
+        NSCAssert([wednesdayWeek.startDate isEqualToDate:start], @"Wednesday start must begin on Wednesday");
+        NSCAssert([wednesdayWeek.endDate isEqualToDate:end], @"Snapshot must cover two full weeks");
+        NSDate *sunday = [cal dateWithEra:1 year:2026 month:10 day:18 hour:0 minute:0 second:0 nanosecond:0];
+        NSCAssert([WeekSnapshotInterval(thursday, 0).startDate isEqualToDate:sunday], @"Sunday start must follow the app preference");
+
         NSDate *(^date)(NSInteger, NSInteger) = ^NSDate *(NSInteger day, NSInteger hour) {
             return [cal dateWithEra:1 year:2026 month:10 day:day hour:hour minute:0 second:0 nanosecond:0];
         };
@@ -74,6 +85,6 @@ int main(void) {
         NSCAssert([grouped[date(23, 0)] count] == 1, @"Zero-duration midnight event must be retained");
         NSCAssert([grouped[date(25, 0)] count] == 1, @"Overlapping cache query must include its final day");
         NSCAssert([grouped[date(21, 0)] count] == 2, @"Overlapping query must not duplicate rows");
-        puts("EventCenter checks passed: overlap, final day, cross-midnight and zero-duration grouping");
+        puts("EventCenter checks passed: week interval, overlap, final day, cross-midnight and zero-duration grouping");
     }
 }

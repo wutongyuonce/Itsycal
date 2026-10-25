@@ -30,6 +30,7 @@ struct WeekSnapshot: Codable {
     let start: TimeInterval
     let end: TimeInterval
     let status: String
+    let weekStart: Int
     let days: [String: [WeekEvent]]
 
     static func load() -> WeekSnapshot? {
@@ -37,7 +38,7 @@ struct WeekSnapshot: Codable {
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
               let data = try? Data(contentsOf: container.appendingPathComponent("week.json")),
               let snapshot = try? JSONDecoder().decode(Self.self, from: data),
-              snapshot.version == 1 else { return nil }
+              snapshot.version == 2 else { return nil }
         return snapshot
     }
 
@@ -45,14 +46,16 @@ struct WeekSnapshot: Codable {
         if status == "permission" { return "打开 Itsycal，允许访问日历" }
         if status == "calendars" { return "在 Itsycal 中选择要显示的日历" }
         guard status == "ready" else { return "打开 Itsycal 更新日程" }
+        guard (0...6).contains(weekStart) else { return "打开 Itsycal 更新日程" }
         if timeZone != calendar.timeZone.identifier { return "时区已改变，打开 Itsycal 更新日程" }
-        let monday = WeekDates.monday(containing: date, calendar: calendar)
-        let next = calendar.date(byAdding: .day, value: 7, to: monday)!
-        if monday.timeIntervalSince1970 < start || next.timeIntervalSince1970 > end {
+        let first = WeekDates.weekStartDate(containing: date, weekStart: weekStart, calendar: calendar)
+        let next = calendar.date(byAdding: .day, value: 7, to: first)!
+        if first.timeIntervalSince1970 < start || next.timeIntervalSince1970 > end {
             return "打开 Itsycal 获取本周日程"
         }
         // Missing buckets mean incomplete data, never an empty calendar.
-        if WeekDates.days(containing: date, calendar: calendar).contains(where: { days[WeekDates.key($0, calendar: calendar)] == nil }) {
+        if WeekDates.days(containing: date, weekStart: weekStart, calendar: calendar)
+            .contains(where: { days[WeekDates.key($0, calendar: calendar)] == nil }) {
             return "打开 Itsycal 更新日程"
         }
         return nil
@@ -66,15 +69,16 @@ enum WeekDates {
         return calendar
     }
 
-    static func monday(containing date: Date, calendar: Calendar) -> Date {
+    static func weekStartDate(containing date: Date, weekStart: Int, calendar: Calendar) -> Date {
         let day = calendar.startOfDay(for: date)
-        let offset = (calendar.component(.weekday, from: day) + 5) % 7
+        let start = min(max(weekStart, 0), 6)
+        let offset = (calendar.component(.weekday, from: day) - 1 - start + 7) % 7
         return calendar.date(byAdding: .day, value: -offset, to: day)!
     }
 
-    static func days(containing date: Date, calendar: Calendar) -> [Date] {
-        let start = monday(containing: date, calendar: calendar)
-        return (0..<7).map { calendar.date(byAdding: .day, value: $0, to: start)! }
+    static func days(containing date: Date, weekStart: Int, calendar: Calendar) -> [Date] {
+        let first = weekStartDate(containing: date, weekStart: weekStart, calendar: calendar)
+        return (0..<7).map { calendar.date(byAdding: .day, value: $0, to: first)! }
     }
 
     static func key(_ date: Date, calendar: Calendar) -> String {
@@ -88,6 +92,10 @@ enum WeekDates {
 
     static func link(_ date: Date, calendar: Calendar) -> URL {
         URL(string: "itsycal-week://date/\(key(date, calendar: calendar))?widget=1")!
+    }
+
+    static func weekdayLabel(_ date: Date, calendar: Calendar) -> String {
+        ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][calendar.component(.weekday, from: date) - 1]
     }
 
     static func eventPitch(compact: Bool) -> Double { compact ? 25 : 36 }

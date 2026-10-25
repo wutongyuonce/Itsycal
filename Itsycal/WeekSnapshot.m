@@ -4,18 +4,21 @@
 #import <os/log.h>
 #import "Itsycal-Swift.h"
 
-NSDateInterval *WeekSnapshotInterval(NSDate *date)
+NSDateInterval *WeekSnapshotInterval(NSDate *date, NSInteger weekStartDOW)
 {
     NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
     calendar.timeZone = NSTimeZone.localTimeZone;
     NSDate *today = [calendar startOfDayForDate:date];
-    NSInteger offset = ([calendar component:NSCalendarUnitWeekday fromDate:today] + 5) % 7;
+    weekStartDOW = MIN(MAX(weekStartDOW, 0), 6);
+    NSInteger weekday = [calendar component:NSCalendarUnitWeekday fromDate:today] - 1;
+    NSInteger offset = (weekday - weekStartDOW + 7) % 7;
     NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-offset toDate:today options:0];
     NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:14 toDate:start options:0];
     return [[NSDateInterval alloc] initWithStartDate:start endDate:end];
 }
 
-void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center, NSDateInterval *interval)
+void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center,
+                         NSDateInterval *interval, NSInteger weekStartDOW)
 {
     NSString *group = [NSBundle.mainBundle objectForInfoDictionaryKey:@"WeekAppGroup"];
     NSURL *container = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:group];
@@ -62,12 +65,13 @@ void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center, NSDat
         }
     }
     NSDictionary *snapshot = @{
-        @"version": @1,
+        @"version": @2,
         @"generatedAt": @(NSDate.date.timeIntervalSince1970),
         @"timeZone": calendar.timeZone.name,
         @"start": @(interval.startDate.timeIntervalSince1970),
         @"end": @(interval.endDate.timeIntervalSince1970),
         @"status": status,
+        @"weekStart": @(MIN(MAX(weekStartDOW, 0), 6)),
         @"days": days
     };
     NSError *error;

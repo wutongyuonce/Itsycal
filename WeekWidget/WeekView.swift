@@ -7,7 +7,8 @@ struct WeekView: View {
 
     private let accent = Color(red: 0.19, green: 0.39, blue: 0.84)
     private var calendar: Calendar { WeekDates.calendar }
-    private var dates: [Date] { WeekDates.days(containing: date, calendar: calendar) }
+    private var weekStart: Int { min(max(snapshot?.weekStart ?? 1, 0), 6) }
+    private var dates: [Date] { WeekDates.days(containing: date, weekStart: weekStart, calendar: calendar) }
     private var issue: String? {
         guard let snapshot else { return "打开 Itsycal 设置日程" }
         return snapshot.message(at: date, calendar: calendar)
@@ -106,7 +107,7 @@ struct WeekView: View {
                 let layout = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 1))
                                      : AnyLayout(HStackLayout(spacing: 4))
                 layout {
-                    Text(["周一", "周二", "周三", "周四", "周五", "周六", "周日"][index])
+                    Text(WeekDates.weekdayLabel(day, calendar: calendar))
                         .font(.system(size: compact ? 8 : 10, weight: today ? .semibold : .regular))
                         .foregroundStyle(today ? accent : Color.secondary)
                     Text("\(calendar.component(.day, from: day))")

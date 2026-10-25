@@ -32,7 +32,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     return @[kShowEventDays, kMenuBarIconType, kShowMonthInIcon, kShowDayOfWeekInIcon,
               kShowDaysWithNoEventsInAgenda, kShowMeetingIndicator, kHideIcon,
-              kBaselineOffset, kClockFormat, kWindowPosition];
+              kBaselineOffset, kClockFormat, kWindowPosition, kWeekStartDOW];
 }
 
 @implementation ViewController
@@ -1545,6 +1545,11 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         if (self.itsycalWindow.isVisible) {
             [self positionItsycalWindowForInitialPresentation:YES];
         }
+    }
+    else if ([keyPath isEqualToString:kWeekStartDOW]) {
+        // The desktop snapshot is independent of the visible month, so it
+        // must be rebuilt when the user changes the first day of the week.
+        [_ec refetchAll];
     }
 }
 

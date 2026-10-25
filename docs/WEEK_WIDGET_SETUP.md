@@ -30,7 +30,7 @@ WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.Itsycal
 bash Scripts/install-week.sh
 ```
 
-脚本使用本机配置构建 Debug App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。已有不同 bundle ID 的同名 App 会被拒绝替换。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
+脚本使用本机配置构建 Release App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。不是本项目的同名 App 会被拒绝替换（迁移期的旧身份除外）。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
 
 主应用首次需要允许日历访问，并在设置 Events 页选日历。若从早期的 `com.local.ItsycalWeekApp` 或 `com.wutongyuonce.ItsycalWeek` 升级，新 bundle ID 会被 macOS 视为另一个 App：需要重新授权、重新选择日历，并从桌面移除旧实例后添加新的“本周日程”小组件。旧共享数据和旧授权不会迁移到新身份。桌面右键“编辑小组件”，搜索“本周日程”。中号和超大号都支持；已有实例不会自动变换尺寸。
 
@@ -48,7 +48,7 @@ bash Scripts/install-week.sh
 
 若出现 `Bundle version did not match; LaunchServices DB may need to be rebuilt`，可能是覆盖安装后旧的 suspended Widget 进程还活着。它拿旧版本提交时间线，系统按新版验证就会拒绝，画面退回占位。安装脚本在替换前停止扩展以避免这种情况。
 
-本次故障的验证依据：旧扩展进程启动时间早于新 App 安装；停止该扩展、清理本构建的重复注册并刷新 chronod 后，新进程的 `reload: succeeded with 15 entries` 恢复。本机新注册还曾触发 `Unknown extension process`，刷新 chronod 后恢复，因此安装脚本也会在重新注册后重启用户 chronod 服务。若仍卡住，可以退出 Itsycal、重新打开，并关闭重开小组件图库；检查新进程日志，不能只看安装命令退出码。
+曾出现的故障验证依据：旧扩展进程启动时间早于新 App 安装；停止该扩展、清理本构建的重复注册并刷新 chronod 后，新进程的 `reload: succeeded with 15 entries` 恢复。本机新注册还曾触发 `Unknown extension process`，刷新 chronod 后恢复，因此安装脚本也会在重新注册后重启用户 chronod 服务。若仍卡住，可以退出 Itsycal、重新打开，并关闭重开小组件图库；检查新进程日志，不能只看安装命令退出码。
 
 `pluginkit` 能查到扩展不代表图库、时间线和渲染都成功；以实际日志和画面为准。单条 `purging ... isApple? false` 也不足以证明签名被拒绝，开发期间真实签名在刷新缓存后成功运行。
 
@@ -73,16 +73,16 @@ swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift \
 /tmp/itsycal-render-week /tmp/itsycal-week-previews
 ```
 
-`week-light.png` / `week-dark.png` 是超大号，带 `-compact` 的是中号；这些为合成数据预览。
+这些是合成数据预览，不代表系统已注册的小组件截图。README 使用真实桌面截图。
 
 ## 真机验收
 
-- 周一至周日固定排列；过去整列弱化，当天强调。
+- 七列按设置的一周起始日排列；修改设置后自动刷新。过去整列弱化，当天强调。
 - 中号无顶部信息，超大号有日期范围与总数；两者最多四项。
 - 主应用翻到其他月份后，小组件仍显示本周。
 - 修改日历事件或已选日历，等待系统刷新后同步；主应用需要保持运行。
 - 点击日期和溢出入口打开完整当天，主应用原议程隐藏偏好不妨碍这个入口。
-- 休眠跨午夜、周日跨周一、改变时区时，日期与日程一致更新。
+- 休眠跨午夜、跨周起始日、改变时区时，日期与日程一致更新。
 - 撤销权限、不选日历、主应用退出导致快照过期时，显示相应状态。
 
 这是从 Itsycal 派生的独立项目，不自动合并上游。来源与许可说明见 [README](../README.md)。
