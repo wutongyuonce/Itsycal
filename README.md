@@ -10,17 +10,17 @@ A personal fork of [sfsam/Itsycal](https://github.com/sfsam/Itsycal) with a nati
 - Up to four events per day. An overflow link opens the full day in the menu-bar app.
 - All-day and multi-day events, light/dark appearance, and local-time week transitions.
 
-The fork uses a separate app identity and URL scheme so it can coexist with the official Itsycal. Official Sparkle updates are disabled. Calendar data stays on the Mac. Keep the containing app running to sync event changes; WidgetKit controls the actual refresh timing.
+This is an independent project built from Itsycal. Its bundle identity and URL scheme are its own; it can coexist with the official app. Automatic upstream updates are disabled. Calendar data stays on the Mac. Keep the containing app running to sync event changes; WidgetKit controls the actual refresh timing.
 
 ## Build and install
 
-The current upstream baseline requires **macOS 27 and Xcode 27**. Configure your own development signing in the ignored `Local.xcconfig`:
+The current project baseline requires **macOS 27 and Xcode 27**. Configure your own development signing in the ignored `Local.xcconfig`:
 
 ```sh
 cp -n Local.xcconfig.example Local.xcconfig
 ```
 
-Select Apple Development signing and use a macOS app group matching your team, such as `TEAMID.com.local.ItsycalWeek`. Never commit your local signing file or certificates. See [setup instructions](docs/WEEK_WIDGET_SETUP.md) for details.
+Select Apple Development signing and use a macOS app group matching your team, such as `TEAMID.com.wutongyuonce.ItsycalWeek`. Never commit your local signing file or certificates. See [setup instructions](docs/WEEK_WIDGET_SETUP.md) for details.
 
 Build and install the development app:
 
@@ -40,26 +40,11 @@ xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
 
 This checks compilation; it does not establish that the widget can run on your Mac.
 
-## Keep up with upstream
+## Upstream and attribution
 
-`master` stays aligned with upstream. The widget implementation lives on **feature/week-widget**.
+`master` is this project's only development branch. It is no longer a mirror of upstream; there is no automatic upstream merge.
 
-In this checkout, `origin` is your fork and `upstream` is `https://github.com/sfsam/Itsycal.git`. After cloning the fork elsewhere, add upstream once:
-
-```sh
-git remote add upstream https://github.com/sfsam/Itsycal.git
-```
-
-From a clean feature branch, run:
-
-```sh
-git switch feature/week-widget
-bash Scripts/sync-upstream.sh
-```
-
-This fetches upstream, fast-forwards the fork's master when safe, merges upstream into the widget branch, runs the offline checks and an unsigned build, then pushes the feature branch. It never force-pushes. Conflicts stop the script for manual resolution. Syncing source does not update the installed app; rerun the install script afterwards.
-
-This is an on-demand sync command, not a scheduled background task.
+Itsycal Week began as a fork of [sfsam/Itsycal](https://github.com/sfsam/Itsycal) at commit `1a31050555a97e3b7aac5470ec147abfe7aa0d6a` (0.27.3). The original code is MIT licensed, copyright © 2016 Sanjay Madan; see [LICENSE.txt](LICENSE.txt). Upstream is credited, but future upstream changes are not merged automatically. Port a specific upstream fix manually if it matters, then run the checks and build.
 
 ## Checks and design
 

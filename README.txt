@@ -1,20 +1,6 @@
+Itsycal Week is an independent fork of Itsycal, a tiny calendar for the
+Mac menu bar. This fork adds a native weekly desktop widget.
 
-I've learned a lot by looking at other people's code so
-maybe someone can learn something from looking at mine.
-
-= = = = = = = =
-
-Itsycal is a tiny calendar for your Mac's menu bar.
-
-If you want, it will display your calendar events as a
-companion to the Mac Calendar app. You can also create
-and delete (but not edit) events.
-
-For more info, see: http://www.mowglii.com/itsycal
-
-= = = = = = = =
-
-This project uses a local xcconfig file for signing -
-see CONTRIBUTING.md and Local.xcconfig.example
-
-MIT Licensed - see License file
+See README.md for build, install, and attribution information.
+Upstream: https://github.com/sfsam/Itsycal
+License: MIT (see LICENSE.txt)

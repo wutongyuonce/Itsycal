@@ -35,41 +35,35 @@
     };
 
     NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
-    NSTextField *appName = label(@"Itsycal", NO);
+    NSString *displayName = infoDict[@"CFBundleDisplayName"] ?: @"Itsycal Week";
+    NSTextField *appName = label(displayName, NO);
     appName.font = [NSFont systemFontOfSize:16 weight:NSFontWeightBold];
 
     NSTextField *version = label([NSString stringWithFormat:@"%@ (%@)", infoDict[@"CFBundleShortVersionString"], infoDict[@"CFBundleVersion"]], NO);
     version.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
     version.textColor = [NSColor secondaryLabelColor];
 
-    MoTextField *help = label(NSLocalizedString(@"Help", nil), YES);
-    help.urlString = @"https://www.mowglii.com/itsycal/help.html";
+    MoTextField *repo = label(@"GitHub", YES);
+    repo.urlString = @"https://github.com/wutongyuonce/Itsycal";
 
-    MoTextField *follow = label(NSLocalizedString(@"Follow", nil), YES);
-    follow.urlString = @"https://twitter.com/intent/follow?screen_name=mowgliiapps";
+    MoTextField *upstream = label(@"Upstream Itsycal", YES);
+    upstream.urlString = @"https://github.com/sfsam/Itsycal";
 
-    MoTextField *donate = label(NSLocalizedString(@"Donate", nil), YES);
-    donate.urlString = @"https://mowglii.com/donate/";
+    NSTextField *forkNote = label(@"Forked from Itsycal by Sanjay Madan", NO);
 
-    NSTextField *emojiHelp    = label(@"🛟", NO);
-    NSTextField *emojiTwitter = label(@"🙅‍♂️", NO);
-    NSTextField *emojiDonate  = label(@"♥️", NO);
+    NSTextField *copyright1 = label(@"© 2026 wutongyuonce", NO);
+    NSTextField *copyright2 = label(@"Itsycal © 2012–2026 mowglii.com", NO);
+    copyright1.textColor = [NSColor secondaryLabelColor];
+    copyright2.textColor = [NSColor secondaryLabelColor];
 
-    // The emoji are decorative, so VoiceOver skips them.
-    [emojiHelp.cell setAccessibilityElement:NO];
-    [emojiTwitter.cell setAccessibilityElement:NO];
-    [emojiDonate.cell setAccessibilityElement:NO];
-
-    NSTextField *copyright1 = label(@"© 2012—2026", NO);
-    MoTextField *copyright2 = label(@"mowglii.com", YES);
-
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:box metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(appName, version, help, emojiHelp, follow, emojiTwitter, donate, emojiDonate, copyright1, copyright2)];
-    [vfl :@"V:|[appName]-m-[help]-10-[follow]-10-[donate]-m-[copyright1]|"];
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:box metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(appName, version, repo, upstream, forkNote, copyright1, copyright2)];
+    [vfl :@"V:|[appName]-m-[repo]-8-[upstream]-m-[forkNote]-6-[copyright1]-2-[copyright2]|"];
     [vfl :@"H:|[appName]-4-[version]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|[emojiHelp]-6-[help]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|[emojiTwitter]-6-[follow]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|[emojiDonate]-6-[donate]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|[copyright1]-4-[copyright2]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
+    [vfl :@"H:|[repo]-(>=0)-|"];
+    [vfl :@"H:|[upstream]-(>=0)-|"];
+    [vfl :@"H:|[forkNote]-(>=0)-|"];
+    [vfl :@"H:|[copyright1]-(>=0)-|"];
+    [vfl :@"H:|[copyright2]-(>=0)-|"];
 
     MoVFLHelper *outer = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(box)];
     [outer :@"V:|-m-[box]-m-|"];

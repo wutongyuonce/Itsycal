@@ -4,7 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 app='/Applications/Itsycal Week.app'
-bundle_id='com.local.ItsycalWeekApp'
+bundle_id='com.wutongyuonce.ItsycalWeek'
+legacy_bundle_id='com.local.ItsycalWeekApp'
 derived="${TMPDIR:-/tmp}/itsycal-week-install"
 lsregister='/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 
@@ -14,7 +15,7 @@ if [[ ! -f Local.xcconfig ]]; then
 fi
 if [[ -e "$app" ]]; then
     installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
-    if [[ "$installed_id" != "$bundle_id" ]]; then
+    if [[ "$installed_id" != "$bundle_id" && "$installed_id" != "$legacy_bundle_id" ]]; then
         echo "Refusing to replace a different app at $app" >&2
         exit 1
     fi

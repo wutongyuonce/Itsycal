@@ -468,7 +468,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)navigateToHelp:(id)sender
 {
-    NSURL *url = [NSURL URLWithString:@"https://www.mowglii.com/itsycal/help.html"];
+    NSURL *url = [NSURL URLWithString:@"https://github.com/wutongyuonce/Itsycal#readme"];
     [NSWorkspace.sharedWorkspace openURL:url];
 }
 

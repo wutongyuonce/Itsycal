@@ -32,7 +32,7 @@ DEVELOPMENT_TEAM = XXXXXXXXXX
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGN_STYLE = Automatic
 ENABLE_HARDENED_RUNTIME = YES
-WEEK_APP_GROUP = XXXXXXXXXX.com.local.ItsycalWeek
+WEEK_APP_GROUP = XXXXXXXXXX.com.wutongyuonce.ItsycalWeek
 ```
 
 ## Submitting a Pull Request

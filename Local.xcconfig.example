@@ -10,10 +10,10 @@ ENABLE_HARDENED_RUNTIME = NO
 // CODE_SIGN_IDENTITY = Apple Development
 // CODE_SIGN_STYLE = Automatic
 // ENABLE_HARDENED_RUNTIME = YES
-// WEEK_APP_GROUP = <your-team-id>.com.local.ItsycalWeek
+// WEEK_APP_GROUP = <your-team-id>.com.wutongyuonce.ItsycalWeek
 //
 // macOS permits team-prefixed App Groups without registering a group on the
 // developer website. Both targets must use the same team and group. Xcode
 // manages signing; no personal certificate, profile or team ID belongs in Git.
-// The fallback group.com.local.ItsycalWeek only permits compilation and is
+// The fallback group.com.wutongyuonce.ItsycalWeek only permits compilation and is
 // not a promise that ad-hoc signed builds can access the shared container.

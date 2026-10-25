@@ -1,6 +1,6 @@
 # 构建、安装与刷新排查
 
-此 fork 的小组件改动位于 `feature/week-widget`。当前上游基线要求 macOS 27 / Xcode 27。
+项目以唯一的 `master` 分支开发。当前要求 macOS 27 / Xcode 27。
 
 ## 配置本机签名
 
@@ -17,7 +17,7 @@ DEVELOPMENT_TEAM = 你的团队ID
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGN_STYLE = Automatic
 ENABLE_HARDENED_RUNTIME = YES
-WEEK_APP_GROUP = 你的团队ID.com.local.ItsycalWeek
+WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.ItsycalWeek
 ```
 
 两端均使用这个团队前缀共享组。Apple 支持 macOS 的 `团队ID.组名` 格式，无需单独注册这种 App Group。实际能力以 Xcode 签名结果为准。不要把证书、私钥、profile 或 Local.xcconfig 提交到仓库。
@@ -42,7 +42,7 @@ bash Scripts/install-week.sh
 
 ```sh
 /usr/bin/log show --last 5m --style compact \
-  --predicate 'process == "chronod" AND eventMessage CONTAINS "com.local.ItsycalWeekApp"' \
+  --predicate 'process == "chronod" AND eventMessage CONTAINS "com.wutongyuonce.ItsycalWeek"' \
   | tail -60
 ```
 
@@ -85,4 +85,4 @@ swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift \
 - 休眠跨午夜、周日跨周一、改变时区时，日期与日程一致更新。
 - 撤销权限、不选日历、主应用退出导致快照过期时，显示相应状态。
 
-上游同步方法见 [README](../README.md)。源码同步与已安装 App 更新是两件事，同步后需重跑安装脚本。
+这是从 Itsycal 派生的独立项目，不自动合并上游。来源与许可说明见 [README](../README.md)。
