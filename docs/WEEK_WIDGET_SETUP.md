@@ -30,7 +30,7 @@ WEEK_APP_GROUP = 你的团队ID.com.local.ItsycalWeek
 bash Scripts/install-week.sh
 ```
 
-脚本使用本机配置构建 Debug App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal Week.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。不会覆盖官方 `/Applications/Itsycal.app`。已有不同 bundle ID 的同名 App 会被拒绝替换。脚本会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才替换；普通失败和终止信号会恢复旧版本。它不是断电安全的事务安装器：若在移动旧版和放入新版之间断电或被 SIGKILL，旧版保留在输出所用临时目录下的 `itsycal-week-backup.*`，需手动恢复。
+脚本使用本机配置构建 Debug App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal Week.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。不会覆盖官方 `/Applications/Itsycal.app`。已有不同 bundle ID 的同名 App 会被拒绝替换。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
 
 主应用首次需要允许日历访问，并在设置 Events 页选日历。桌面右键“编辑小组件”，搜索“本周日程”或“Itsycal Week”。中号和超大号都支持；已有实例不会自动变换尺寸。
 

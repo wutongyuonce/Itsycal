@@ -28,7 +28,7 @@ Build and install the development app:
 bash Scripts/install-week.sh
 ```
 
-The script replaces `/Applications/Itsycal Week.app`, verifies its signature, and stops the old app and widget processes before replacement, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery.
+The script replaces `/Applications/Itsycal Week.app` with a recoverable atomic directory swap, verifies its signature, stops the old app and widget processes first, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery.
 
 For a source-only build without signing:
 
@@ -67,7 +67,7 @@ This is an on-demand sync command, not a scheduled background task.
 bash Tests/check-week.sh
 ```
 
-The checks cover Monday-based dates, DST, week coverage, four-item capacity, links, overlapping EventKit queries, and cross-midnight grouping using synthetic data.
+The checks cover Monday-based dates, DST, week coverage, four-item capacity, links, overlapping EventKit queries, cross-midnight grouping, and the installer's swap/rollback path using synthetic data.
 
 - [Behavior and architecture](docs/WEEK_WIDGET_SPEC.md)
 - [Installation and refresh troubleshooting](docs/WEEK_WIDGET_SETUP.md)

@@ -8,4 +8,5 @@ swiftc WeekWidget/WeekModel.swift Tests/WeekModelCheck.swift -o "$check_dir/mode
 clang -fobjc-arc -fmodules -I Itsycal -I Itsycal/MoCode \
   Itsycal/EventCenter.m Itsycal/MoCode/MoDate.m Tests/EventCenterCheck.m \
   -framework AppKit -framework EventKit -o "$check_dir/events"
+python3 Tests/install-check.py
 "$check_dir/events"
