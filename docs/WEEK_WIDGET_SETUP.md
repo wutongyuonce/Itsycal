@@ -26,11 +26,13 @@ WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.Itsycal
 
 ## 安装或更新
 
+仓库不含发布者证书，也没有内置更新器。其他用户用自己的 Apple 身份构建，不需要我们的签名；完全未签名只能编译，原生小组件需要有效签名和 App Group。公开分发需自己的 Developer ID 并 notarize。
+
 ```sh
 bash Scripts/install-week.sh
 ```
 
-脚本使用本机配置构建 Release App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。不是本项目的同名 App 会被拒绝替换（迁移期的旧身份除外）。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
+脚本使用本机配置构建 Release App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。Bundle ID 与构建产物不同的同名 App 会被拒绝替换；可用 `INSTALL_APP_PATH` 安装到其他位置。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
 
 主应用首次需要允许日历访问，并在设置 Events 页选日历。若从早期的 `com.local.ItsycalWeekApp` 或 `com.wutongyuonce.ItsycalWeek` 升级，新 bundle ID 会被 macOS 视为另一个 App：需要重新授权、重新选择日历，并从桌面移除旧实例后添加新的“本周日程”小组件。旧共享数据和旧授权不会迁移到新身份。桌面右键“编辑小组件”，搜索“本周日程”。中号和超大号都支持；已有实例不会自动变换尺寸。
 

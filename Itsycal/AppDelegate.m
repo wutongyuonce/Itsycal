@@ -14,7 +14,6 @@
 #import "Sizer.h"
 #import "MoUtils.h"
 #import "MASShortcut/Shortcut.h"
-#import "Sparkle/SUUpdater.h"
 
 @implementation AppDelegate
 {
@@ -84,19 +83,13 @@
 - (void)applicationWillFinishLaunching:(NSNotification *)aNotification
 {
     NSApp.mainMenu = [self mainMenu];
-
-    // Create Sparkle's updater. This starts its update cycle.
-    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
-        [SUUpdater sharedUpdater];
-    }
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
     // Ensure the user has moved Itsycal to the /Applications folder.
     // Having the user manually move Itsycal to /Applications turns off
-    // Gatekeeper Path Randomization (introduced in 10.12) and allows
-    // Itsycal to be updated with Sparkle. :P
+    // Gatekeeper Path Randomization (introduced in 10.12).
 #ifndef DEBUG
     [self checkIfRunFromApplicationsFolder];
 #endif

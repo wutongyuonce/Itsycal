@@ -73,7 +73,7 @@ def main() -> None:
     stop(os.path.join(args.app, 'Contents', 'PlugIns', 'WeekWidget.appex', 'Contents', 'MacOS', 'WeekWidget'), 'Widget')
 
     had_old = os.path.exists(args.app)
-    backup_app = os.path.join(args.backup, 'Itsycal.app')
+    backup_app = os.path.join(args.backup, os.path.basename(args.app))
     if had_old:
         old = version(args.app)
         # One filesystem operation: after this, neither path is ever missing.

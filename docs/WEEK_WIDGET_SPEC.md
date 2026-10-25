@@ -106,7 +106,7 @@ MoCalendar 绘制、Agenda 详情、会议 URL 提取及其他主应用功能保
 - URL scheme：`itsycal-week`。
 - App Group 默认值：`group.com.wutongyuonce.Itsycal`，可经 Local.xcconfig 覆盖。
 - 扩展启用 sandbox，主应用不为此迁移为沙盒应用。
-- 禁用官方 Sparkle 更新与信息源，避免被上游构建覆盖。
+- 不包含更新器；用户自行构建并安装新版本。
 - 保留 MIT 许可和上游署名。本项目独立演进，不再自动合并上游。
 
 本机现使用用户创建的 Apple Development 身份，已补齐 Apple 官方 WWDR G3 中间证书。Local.xcconfig 中团队及团队前缀共享组匹配；Xcode Automatic signing 完成两个 target 的 Debug / Release 构建，无需手工创建 profile。安装后刷新 chronod 缓存，系统已实际启动扩展并成功获取时间线，containermanagerd 已批准共享组。具体操作与此前 ad-hoc 路线的有限结论见安装说明。

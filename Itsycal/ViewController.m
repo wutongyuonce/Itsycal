@@ -24,7 +24,6 @@
 #import "MoPopover.h"
 #import "MoVFLHelper.h"
 #import "MoUtils.h"
-#import "Sparkle/SUUpdater.h"
 
 // Keys observed in NSUserDefaults for preference changes. Registered in
 // -fileNotifications and unregistered in -dealloc.
@@ -366,9 +365,6 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     NSInteger i = 0;
 
     [optMenu insertItemWithTitle:NSLocalizedString(@"About Itsycal", @"") action:@selector(showAbout:) keyEquivalent:@"" atIndex:i++];
-    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
-        [optMenu insertItemWithTitle:NSLocalizedString(@"Check for Updates…", @"") action:@selector(checkForUpdates:) keyEquivalent:@"" atIndex:i++];
-    }
     [optMenu insertItem:[NSMenuItem separatorItem] atIndex:i++];
     [optMenu insertItemWithTitle:NSLocalizedString(@"Go to Date…", @"") action:@selector(showDatePickerPopover:) keyEquivalent:@"T" atIndex:i++];
     [optMenu insertItem:[NSMenuItem separatorItem] atIndex:i++];
@@ -450,14 +446,6 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [_newEventPopover close];
     [self.prefsVC showPrefs];
     [self.prefsWC showWindow:self];
-}
-
-- (void)checkForUpdates:(id)sender
-{
-    // This personal build has no update feed.
-    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
-        [[SUUpdater sharedUpdater] checkForUpdates:self];
-    }
 }
 
 - (void)openDateAndTimePrefs:(id)sender

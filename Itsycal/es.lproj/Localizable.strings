@@ -30,7 +30,6 @@
 "Appearance" = "Apariencia";
 "Are you sure you want to delete this event?" = "¿Seguro que quieres eliminar este evento?";
 "At time of event" = "A la hora del evento";
-"Automatically check for updates" = "Buscar actualizaciones automáticamente";
 "Beep beep on the hour" = "Emita zumbidos a cada hora";
 "Below menu bar icon" = "Debajo del icono de la barra de menús";
 "Calendar" = "Calendario";
@@ -43,7 +42,6 @@ Itsycal es más útil cuando puede mostrar los eventos de sus calendarios. Puede
 /* Accessibility description for menu bar icon showing a grid of days */
 "Calendar grid" = "Cuadrícula de calendario";
 "Cancel" = "Cancelar";
-"Check for Updates…" = "Buscar actualizaciones…";
 "Copy" = "Copiar";
 "Copy Meeting Link" = "Copiar enlace de la reunión";
 /* Dark theme name */

@@ -53,9 +53,38 @@ bash Scripts/install-week.sh
 
 主应用退出后小组件仍显示已有快照，但新的日程修改要等主应用再次运行才同步。系统决定实际刷新时机，不保证秒级更新。
 
+## 其他用户如何自行构建
+
+仓库不附带我们的证书、私钥或 App Group。任何用户都可以用自己的 Apple 身份构建，不需要我们的签名：
+
+1. 克隆仓库，复制 `Local.xcconfig.example` 为 `Local.xcconfig`。
+2. 在 Xcode 中给 **Itsycal** 和 **WeekWidget** 选择自己的 Team/Apple Development 身份。
+3. 把两个 target 的 Bundle ID 改成自己的唯一名称，并设置同一 Team 前缀的 App Group，例如：
+   ```xcconfig
+   DEVELOPMENT_TEAM = 你的团队ID
+   CODE_SIGN_IDENTITY = Apple Development
+   WEEK_APP_GROUP = 你的团队ID.com.你的名字.Itsycal
+   ```
+4. 运行：
+   ```sh
+   bash Scripts/install-week.sh
+   ```
+   默认安装到 `/Applications/Itsycal.app`。若该位置已有其他 App，使用：
+   ```sh
+   INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
+   ```
+
+签名边界：
+
+- **可以用自己的签名**：自己的 Apple Development 或 Developer ID，不需要也不能使用我们的私钥。
+- **完全不用签名**：`CODE_SIGNING_ALLOWED=NO` 只能验证编译。原生小组件要求沙盒、App Group 和有效代码签名；未签名或 ad-hoc 构建在本机实测无法正常注册小组件。
+- **公开分发**：需要自己的 Developer ID Application 并 notarize；用户仍可手动下载安装。本项目已移除内置更新器，不提供 Sparkle 更新。
+
+首次安装后打开主应用，允许日历访问，在 Events 中选择日历，再从桌面图库添加“本周日程”。修改“一周从周几开始”后小组件会自动刷新。
+
 ## 版本号
 
-- `MARKETING_VERSION`（用户看到的版本）在 `Itsycal.xcodeproj/project.pbxproj` 的两个 target 中，目前为 `1.1.0`。
+- `MARKETING_VERSION`（用户看到的版本）在 `Itsycal.xcodeproj/project.pbxproj` 的两个 target 中，目前为 `1.2.0`。
 - `CURRENT_PROJECT_VERSION` 是默认 build 号。
 - 主应用和 Widget 的 `Info.plist` 使用 `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`。
 - 本地安装脚本会用当前时间覆盖 build 号，避免 WidgetKit 继续使用旧版本的时间线归档。

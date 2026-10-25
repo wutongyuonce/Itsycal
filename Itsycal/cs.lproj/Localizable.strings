@@ -30,7 +30,6 @@
 "Appearance" = "Vzhled";
 "Are you sure you want to delete this event?" = "Opravdu chcete tuto událost smazat?";
 "At time of event" = "V čase události";
-"Automatically check for updates" = "Automaticky vyhledávat aktualizace";
 "Beep beep on the hour" = "Zapípat každou hodinu";
 "Below menu bar icon" = "Pod ikonou v řádku nabídek";
 "Calendar" = "Kalendář";
@@ -43,7 +42,6 @@ Itsycal je užitečnější, pokud může zobrazovat události z vašich kalend
 /* Accessibility description for menu bar icon showing a grid of days */
 "Calendar grid" = "Mřížka kalendáře";
 "Cancel" = "Zrušit";
-"Check for Updates…" = "Vyhledat aktualizace…";
 "Copy" = "Kopírovat";
 "Copy Meeting Link" = "Kopírovat odkaz na schůzku";
 /* Dark theme name */

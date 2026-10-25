@@ -79,12 +79,10 @@
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			attributesByRelativePath = {
 				Frameworks/MASShortcut.framework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
-				Frameworks/Sparkle.framework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
 			};
 			buildPhase = 9252DF361AFD3557007B079F /* CopyFiles */;
 			membershipExceptions = (
 				Frameworks/MASShortcut.framework,
-				Frameworks/Sparkle.framework,
 			);
 		};
 		92488FE93072079E00E9229D /* Exceptions for "Itsycal" folder in "Copy Files" phase from "Itsycal" target */ = {
@@ -184,7 +182,6 @@
 				9242A55A1A82A136005AA4B3 /* Resources */,
 				9252DF361AFD3557007B079F /* CopyFiles */,
 				9291F8AB2AE2126B00E80F14 /* CopyFiles */,
-				921949F4225D287F00223258 /* ShellScript */,
 				A10000000000000000000005 /* Embed App Extensions */,
 			);
 			buildRules = (
@@ -275,23 +272,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		921949F4225D287F00223258 /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			runOnlyForDeploymentPostprocessing = 1;
-			shellPath = /bin/sh;
-			shellScript = (
-				"# For notarization we need to deep codesign Sparkle.",
-				"# github.com/sparkle-project/Sparkle/issues/1266#issuecomment-421182578",
-				"LOCATION=\"${BUILT_PRODUCTS_DIR}\"/\"${FRAMEWORKS_FOLDER_PATH}\"",
-				"IDENTITY=\"${CODE_SIGN_IDENTITY}\"",
-				"codesign --verbose --force --deep -o runtime --sign \"$IDENTITY\" \"$LOCATION/Sparkle.framework/Versions/A/Resources/AutoUpdate.app\"",
-				"codesign --verbose --force -o runtime --sign \"$IDENTITY\" \"$LOCATION/Sparkle.framework/Versions/A\"",
-				"",
-			);
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A1000000000000000000000A /* Sources */ = {
@@ -451,7 +431,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = "-Wl,-rpath,@loader_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal;
 				PRODUCT_NAME = Itsycal;
@@ -482,7 +462,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = "-Wl,-rpath,@loader_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal;
 				PRODUCT_NAME = Itsycal;
@@ -507,7 +487,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal.WeekWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -531,7 +511,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal.WeekWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
