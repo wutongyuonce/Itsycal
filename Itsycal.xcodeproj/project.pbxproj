@@ -373,7 +373,7 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
-				WEEK_APP_GROUP = group.com.wutongyuonce.ItsycalWeek;
+				WEEK_APP_GROUP = group.com.wutongyuonce.Itsycal;
 			};
 			name = Debug;
 		};
@@ -427,7 +427,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
-				WEEK_APP_GROUP = group.com.wutongyuonce.ItsycalWeek;
+				WEEK_APP_GROUP = group.com.wutongyuonce.Itsycal;
 			};
 			name = Release;
 		};
@@ -453,7 +453,7 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "-Wl,-rpath,@loader_path/../Frameworks";
-				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.ItsycalWeek;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal;
 				PRODUCT_NAME = Itsycal;
 				SWIFT_INSTALL_OBJC_HEADER = YES;
 				SWIFT_OBJC_INTERFACE_HEADER_NAME = "Itsycal-Swift.h";
@@ -484,7 +484,7 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "-Wl,-rpath,@loader_path/../Frameworks";
-				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.ItsycalWeek;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal;
 				PRODUCT_NAME = Itsycal;
 				SWIFT_INSTALL_OBJC_HEADER = YES;
 				SWIFT_OBJC_INTERFACE_HEADER_NAME = "Itsycal-Swift.h";
@@ -508,7 +508,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.ItsycalWeek.WeekWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal.WeekWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -532,7 +532,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.ItsycalWeek.WeekWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wutongyuonce.Itsycal.WeekWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";

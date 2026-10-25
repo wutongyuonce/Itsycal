@@ -17,7 +17,7 @@ DEVELOPMENT_TEAM = 你的团队ID
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGN_STYLE = Automatic
 ENABLE_HARDENED_RUNTIME = YES
-WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.ItsycalWeek
+WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.Itsycal
 ```
 
 两端均使用这个团队前缀共享组。Apple 支持 macOS 的 `团队ID.组名` 格式，无需单独注册这种 App Group。实际能力以 Xcode 签名结果为准。不要把证书、私钥、profile 或 Local.xcconfig 提交到仓库。
@@ -32,7 +32,7 @@ bash Scripts/install-week.sh
 
 脚本使用本机配置构建 Debug App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。已有不同 bundle ID 的同名 App 会被拒绝替换。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
 
-主应用首次需要允许日历访问，并在设置 Events 页选日历。若从旧的 `com.local.ItsycalWeekApp` 升级，新 bundle ID 会被 macOS 视为另一个 App：需要重新授权、重新选择日历，并从桌面移除旧实例后添加新的“本周日程”小组件。旧共享数据不会被新身份读取。桌面右键“编辑小组件”，搜索“本周日程”。中号和超大号都支持；已有实例不会自动变换尺寸。
+主应用首次需要允许日历访问，并在设置 Events 页选日历。若从早期的 `com.local.ItsycalWeekApp` 或 `com.wutongyuonce.ItsycalWeek` 升级，新 bundle ID 会被 macOS 视为另一个 App：需要重新授权、重新选择日历，并从桌面移除旧实例后添加新的“本周日程”小组件。旧共享数据和旧授权不会迁移到新身份。桌面右键“编辑小组件”，搜索“本周日程”。中号和超大号都支持；已有实例不会自动变换尺寸。
 
 安装实测已确认开发签名可运行、共享组访问获准、14 天 ready 快照可写出、系统扩展 timeline 返回 15 条。中号与超大号可以加入图库。后续日历编辑同步、各点击路径与跨时区行为仍应按下方清单验收。
 
@@ -42,7 +42,7 @@ bash Scripts/install-week.sh
 
 ```sh
 /usr/bin/log show --last 5m --style compact \
-  --predicate 'process == "chronod" AND eventMessage CONTAINS "com.wutongyuonce.ItsycalWeek"' \
+  --predicate 'process == "chronod" AND eventMessage CONTAINS "com.wutongyuonce.Itsycal"' \
   | tail -60
 ```
 

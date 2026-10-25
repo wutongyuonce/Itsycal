@@ -101,10 +101,10 @@ MoCalendar 绘制、Agenda 详情、会议 URL 提取及其他主应用功能保
 
 这是可以与官方版共存的个人 fork：
 
-- 主应用 bundle ID：`com.wutongyuonce.ItsycalWeek`；显示名 `Itsycal`。
-- 扩展 bundle ID：`com.wutongyuonce.ItsycalWeek.WeekWidget`。
+- 主应用 bundle ID：`com.wutongyuonce.Itsycal`；显示名 `Itsycal`。
+- 扩展 bundle ID：`com.wutongyuonce.Itsycal.WeekWidget`。
 - URL scheme：`itsycal-week`。
-- App Group 默认值：`group.com.wutongyuonce.ItsycalWeek`，可经 Local.xcconfig 覆盖。
+- App Group 默认值：`group.com.wutongyuonce.Itsycal`，可经 Local.xcconfig 覆盖。
 - 扩展启用 sandbox，主应用不为此迁移为沙盒应用。
 - 禁用官方 Sparkle 更新与信息源，避免被上游构建覆盖。
 - 保留 MIT 许可和上游署名。本项目独立演进，不再自动合并上游。

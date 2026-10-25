@@ -4,8 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 app='/Applications/Itsycal.app'
-bundle_id='com.wutongyuonce.ItsycalWeek'
-legacy_bundle_ids=('com.local.ItsycalWeekApp' 'com.mowglii.ItsycalApp')
+bundle_id='com.wutongyuonce.Itsycal'
+legacy_bundle_ids=('com.wutongyuonce.ItsycalWeek' 'com.local.ItsycalWeekApp' 'com.mowglii.ItsycalApp')
 derived="${TMPDIR:-/tmp}/itsycal-week-install"
 lsregister='/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 

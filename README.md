@@ -20,7 +20,7 @@ The current project baseline requires **macOS 27 and Xcode 27**. Configure your 
 cp -n Local.xcconfig.example Local.xcconfig
 ```
 
-Select Apple Development signing and use a macOS app group matching your team, such as `TEAMID.com.wutongyuonce.ItsycalWeek`. Never commit your local signing file or certificates. See [setup instructions](docs/WEEK_WIDGET_SETUP.md) for details.
+Select Apple Development signing and use a macOS app group matching your team, such as `TEAMID.com.wutongyuonce.Itsycal`. Never commit your local signing file or certificates. See [setup instructions](docs/WEEK_WIDGET_SETUP.md) for details.
 
 Build and install the development app:
 
@@ -28,7 +28,7 @@ Build and install the development app:
 bash Scripts/install-week.sh
 ```
 
-The script replaces `/Applications/Itsycal.app` with a recoverable atomic directory swap, verifies its signature, stops the old app and widget processes first, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery. Upgrading from the earlier `com.local.*` identity requires granting access and selecting calendars again because macOS stores them per app identity.
+The script replaces `/Applications/Itsycal.app` with a recoverable atomic directory swap, verifies its signature, stops the old app and widget processes first, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery. Upgrading from an earlier bundle identity requires granting access, selecting calendars, and re-adding the desktop widget because macOS stores permissions, containers, and widget instances per app identity.
 
 For a source-only build without signing:
 
