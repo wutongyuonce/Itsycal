@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-app='/Applications/Itsycal Week.app'
+app='/Applications/Itsycal.app'
 bundle_id='com.wutongyuonce.ItsycalWeek'
-legacy_bundle_id='com.local.ItsycalWeekApp'
+legacy_bundle_ids=('com.local.ItsycalWeekApp' 'com.mowglii.ItsycalApp')
 derived="${TMPDIR:-/tmp}/itsycal-week-install"
 lsregister='/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
 
@@ -15,7 +15,7 @@ if [[ ! -f Local.xcconfig ]]; then
 fi
 if [[ -e "$app" ]]; then
     installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
-    if [[ "$installed_id" != "$bundle_id" && "$installed_id" != "$legacy_bundle_id" ]]; then
+    if [[ "$installed_id" != "$bundle_id" && ! " ${legacy_bundle_ids[*]} " =~ " $installed_id " ]]; then
         echo "Refusing to replace a different app at $app" >&2
         exit 1
     fi
@@ -23,7 +23,7 @@ fi
 
 # Increasing the local build version invalidates WidgetKit's previous archives.
 # Keep the upstream marketing/build version out of source control changes.
-version=$(date +%s)
+version=$(date +%Y%m%d%H%M%S)
 xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
     -destination 'platform=macOS' -derivedDataPath "$derived" \
     -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$version" build
@@ -38,8 +38,8 @@ ditto "$product" "$stage/.new.app"
 # replacement and be rejected by WidgetKit's archive validation.
 if ! python3 Scripts/install-week.py --app "$app" --stage "$stage/.new.app" --backup "$backup"; then
     rm -rf "$stage"
-    if [[ -e "$backup/Itsycal Week.app" ]]; then
-        echo "Install failed; previous app preserved at $backup/Itsycal Week.app" >&2
+    if [[ -e "$backup/Itsycal.app" ]]; then
+        echo "Install failed; previous app preserved at $backup/Itsycal.app" >&2
     else
         rm -rf "$backup"
     fi

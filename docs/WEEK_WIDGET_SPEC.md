@@ -1,4 +1,4 @@
-# Itsycal Week：本周日程小组件
+# Itsycal：本周日程小组件
 
 状态：首版已实现；用户确认可添加原生小组件。开发签名构建、共享组快照与系统时间线已跑通。覆盖安装留下旧扩展进程导致的版本不匹配已定位恢复，并提供安装脚本避免重现。后续日历编辑与全部交互场景仍需验收。
 
@@ -101,7 +101,7 @@ MoCalendar 绘制、Agenda 详情、会议 URL 提取及其他主应用功能保
 
 这是可以与官方版共存的个人 fork：
 
-- 主应用 bundle ID：`com.wutongyuonce.ItsycalWeek`；显示名 `Itsycal Week`。
+- 主应用 bundle ID：`com.wutongyuonce.ItsycalWeek`；显示名 `Itsycal`。
 - 扩展 bundle ID：`com.wutongyuonce.ItsycalWeek.WeekWidget`。
 - URL scheme：`itsycal-week`。
 - App Group 默认值：`group.com.wutongyuonce.ItsycalWeek`，可经 Local.xcconfig 覆盖。
@@ -111,7 +111,7 @@ MoCalendar 绘制、Agenda 详情、会议 URL 提取及其他主应用功能保
 
 本机现使用用户创建的 Apple Development 身份，已补齐 Apple 官方 WWDR G3 中间证书。Local.xcconfig 中团队及团队前缀共享组匹配；Xcode Automatic signing 完成两个 target 的 Debug / Release 构建，无需手工创建 profile。安装后刷新 chronod 缓存，系统已实际启动扩展并成功获取时间线，containermanagerd 已批准共享组。具体操作与此前 ad-hoc 路线的有限结论见安装说明。
 
-安装时应用文件名使用 `Itsycal Week.app`，避免覆盖已有官方 `Itsycal.app`。构建产品名称仍为 Itsycal，以匹配现有源码与混编头。
+安装时应用文件名使用 `Itsycal.app`。构建产品名称仍为 Itsycal，以匹配现有源码与混编头。
 
 具体命令见 [WEEK_WIDGET_SETUP.md](WEEK_WIDGET_SETUP.md)。
 

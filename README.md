@@ -1,4 +1,4 @@
-# Itsycal Week
+# Itsycal (weekly widget fork)
 
 A personal fork of [sfsam/Itsycal](https://github.com/sfsam/Itsycal) with a native macOS desktop widget showing the current week, Monday through Sunday.
 
@@ -28,7 +28,7 @@ Build and install the development app:
 bash Scripts/install-week.sh
 ```
 
-The script replaces `/Applications/Itsycal Week.app` with a recoverable atomic directory swap, verifies its signature, stops the old app and widget processes first, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery. Upgrading from the earlier `com.local.*` identity requires granting access and selecting calendars again because macOS stores them per app identity.
+The script replaces `/Applications/Itsycal.app` with a recoverable atomic directory swap, verifies its signature, stops the old app and widget processes first, then refreshes the per-user widget service. Other widgets briefly reload during installation. Open the app, grant calendar access, select calendars in Events settings, then add **本周日程** from the desktop widget gallery. Upgrading from the earlier `com.local.*` identity requires granting access and selecting calendars again because macOS stores them per app identity.
 
 For a source-only build without signing:
 
@@ -44,7 +44,13 @@ This checks compilation; it does not establish that the widget can run on your M
 
 `master` is this project's only development branch. It is no longer a mirror of upstream; there is no automatic upstream merge.
 
-Itsycal Week began as a fork of [sfsam/Itsycal](https://github.com/sfsam/Itsycal) at commit `1a31050555a97e3b7aac5470ec147abfe7aa0d6a` (0.27.3). The original code is MIT licensed, copyright © 2016 Sanjay Madan; see [LICENSE.txt](LICENSE.txt). Upstream is credited, but future upstream changes are not merged automatically. Port a specific upstream fix manually if it matters, then run the checks and build.
+This project began as a fork of [sfsam/Itsycal](https://github.com/sfsam/Itsycal) at commit `1a31050555a97e3b7aac5470ec147abfe7aa0d6a` (0.27.3). The original code is MIT licensed, copyright © 2016 Sanjay Madan; see [LICENSE.txt](LICENSE.txt). Upstream is credited, but future upstream changes are not merged automatically. Port a specific upstream fix manually if it matters, then run the checks and build.
+
+## Version
+
+The user-visible version is `MARKETING_VERSION` in `Itsycal.xcodeproj/project.pbxproj`; both targets currently use `1.0.0`. `CURRENT_PROJECT_VERSION` is the build number (currently `1`). The host and widget `Info.plist` files read `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)`.
+
+`Scripts/install-week.sh` overrides the build number at build time with `YYYYMMDDHHMMSS`. A fresh build number is required because WidgetKit validates archived timelines against the installed bundle version; reusing one can leave the desktop widget on a stale/placeholder render.
 
 ## Checks and design
 

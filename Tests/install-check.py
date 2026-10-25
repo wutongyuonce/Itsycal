@@ -38,13 +38,13 @@ with tempfile.TemporaryDirectory() as temporary:
     root.mkdir()
     backup = Path(temporary) / 'backup'
     backup.mkdir()
-    app, stage = root / 'Itsycal Week.app', root / '.new.app'
+    app, stage = root / 'Itsycal.app', root / '.new.app'
     make_app(app, 'com.example.week', '1', 'old')
     make_app(stage, 'com.example.week', '2', 'new')
     result = run(app, stage, backup)
     assert result.returncode == 0, result.stderr
     assert (app / 'Contents' / 'Resources' / 'new').exists()
-    assert (backup / 'Itsycal Week.app' / 'Contents' / 'Resources' / 'old').exists()
+    assert (backup / 'Itsycal.app' / 'Contents' / 'Resources' / 'old').exists()
     assert not stage.exists()
 
     # Failed post-swap verification restores the old bundle and removes the new.

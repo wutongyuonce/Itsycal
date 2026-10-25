@@ -7,7 +7,7 @@
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
 	<key>CFBundleDisplayName</key>
-	<string>Itsycal Week</string>
+	<string>Itsycal</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
@@ -48,9 +48,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Itsycal Week uses AppleEvents to open your calendar app to the selected day. You can change this setting in System Settings › Privacy &amp; Security › Automation</string>
+	<string>Itsycal uses AppleEvents to open your calendar app to the selected day. You can change this setting in System Settings › Privacy &amp; Security › Automation</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Itsycal Week displays events from the calendars you select. You can change this setting in System Settings › Privacy &amp; Security › Calendars</string>
+	<string>Itsycal displays events from the calendars you select. You can change this setting in System Settings › Privacy &amp; Security › Calendars</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 wutongyuonce. Fork of Itsycal © 2012–2026 mowglii.com</string>
 	<key>NSPrincipalClass</key>

@@ -35,7 +35,7 @@
     };
 
     NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
-    NSString *displayName = infoDict[@"CFBundleDisplayName"] ?: @"Itsycal Week";
+    NSString *displayName = infoDict[@"CFBundleDisplayName"] ?: @"Itsycal";
     NSTextField *appName = label(displayName, NO);
     appName.font = [NSFont systemFontOfSize:16 weight:NSFontWeightBold];
 
