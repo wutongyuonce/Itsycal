@@ -86,7 +86,9 @@
     NSApp.mainMenu = [self mainMenu];
 
     // Create Sparkle's updater. This starts its update cycle.
-    [SUUpdater sharedUpdater];
+    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
+        [SUUpdater sharedUpdater];
+    }
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
@@ -164,16 +166,20 @@
         if ([url.host isEqualToString:@"date"] && url.pathComponents.count == 2) {
             NSString *dateString = url.pathComponents[1];
             
-            if ([dateString isEqualToString:@"now"]) {
-                [_vc dateURLReceived:[NSDate new]];
-            } else {
-                NSDateFormatter *format = [NSDateFormatter new];
-                format.dateFormat = @"yyyy-MM-dd";
-                NSDate *date = [format dateFromString:dateString];
-                
-                if (date) {
-                    [_vc dateURLReceived:date];
+            NSDateFormatter *format = [NSDateFormatter new];
+            format.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+            format.calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+            format.timeZone = NSTimeZone.localTimeZone;
+            format.dateFormat = @"yyyy-MM-dd";
+            format.lenient = NO;
+            NSDate *date = [dateString isEqualToString:@"now"] ? NSDate.date : [format dateFromString:dateString];
+            if (date) {
+                BOOL widget = NO;
+                for (NSURLQueryItem *item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
+                    if ([item.name isEqualToString:@"widget"] && [item.value isEqualToString:@"1"]) widget = YES;
                 }
+                if (widget) [_vc widgetDateReceived:date];
+                else [_vc dateURLReceived:date];
             }
         }
     }

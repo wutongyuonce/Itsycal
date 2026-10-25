@@ -17,7 +17,10 @@ cp Local.xcconfig.example Local.xcconfig
 
 ### Option 1 — No Apple Developer account
 
-Leave the defaults as-is. Xcode will sign the app for local use only.
+For compilation checks, leave the defaults as-is and build with
+`CODE_SIGNING_ALLOWED=NO`. Running this fork's native widget also requires
+working development signing and a shared App Group; see
+[widget setup](docs/WEEK_WIDGET_SETUP.md).
 
 ### Option 2 — Your own Apple Developer account
 
@@ -26,7 +29,10 @@ Membership at developer.apple.com):
 
 ```
 DEVELOPMENT_TEAM = XXXXXXXXXX
-CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE = Automatic
+ENABLE_HARDENED_RUNTIME = YES
+WEEK_APP_GROUP = XXXXXXXXXX.com.local.ItsycalWeek
 ```
 
 ## Submitting a Pull Request

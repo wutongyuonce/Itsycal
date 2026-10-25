@@ -6,6 +6,8 @@
 	<string>Fonts</string>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
+	<key>CFBundleDisplayName</key>
+	<string>Itsycal Week</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
@@ -30,10 +32,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>com.mowglii.ItsycalApp</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>itsycal</string>
+				<string>itsycal-week</string>
 			</array>
 		</dict>
 	</array>
@@ -56,11 +58,9 @@
 	<key>SUAllowsAutomaticUpdates</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://s3.amazonaws.com/itsycal/itsycal.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>TxKIjUS10OYKgZaAQlRvDjFNEc28hG82wtRWlcNUYSc=</string>
+	<false/>
+	<key>WeekAppGroup</key>
+	<string>$(WEEK_APP_GROUP)</string>
 	<key>SUScheduledCheckInterval</key>
 	<real>345600</real>
 </dict>

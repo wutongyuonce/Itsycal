@@ -9,6 +9,7 @@
 #import <os/log.h>
 #import <AppKit/NSWorkspace.h>
 #import "EventCenter.h"
+#import "WeekSnapshot.h"
 
 // NSUserDefaults key for array of selected calendar IDs.
 static NSString *kSelectedCalendars = @"SelectedCalendars";
@@ -35,24 +36,16 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     dispatch_queue_t      _queueWork;
     dispatch_queue_t      _queueIsol;
     dispatch_queue_t      _queueIsol2;
+    NSDateInterval       *_weekInterval;            // _queueWork
 }
 
 - (instancetype)initWithCalendar:(NSCalendar *)calendar delegate:(id<EventCenterDelegate>)delegate {
     
     EKEventStoreRequestAccessCompletionHandler requestCompletionHandler = ^(BOOL granted, NSError *error) {
-        if (granted) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self->_store reset];
-                [self refetchAll];
-            });
-        }
-        else {
-            // Fail silently. The alternative is to kick out to the
-            // delegate so it can display an informative alert. But
-            // that would happen every time the user launches Itsycal
-            // (including when the system launches it at startup) and
-            // seeing the same modal alert would get old fast.
-        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self->_store reset];
+            [self refetchAll];
+        });
     };
     
     self = [super init];
@@ -156,6 +149,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:NO];
+            [self _fetchWeekAndPublish];
         }
     });
 }
@@ -169,8 +163,10 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     MoDate endMoDate   = [self.delegate fetchEndDate];
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
+            self->_weekInterval = nil;
             [self _fetchSourcesAndCalendars];
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:YES];
+            [self _fetchWeekAndPublish];
         }
     });
 }
@@ -183,6 +179,14 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
 }
 
 #pragma mark - Private (GCD thread pool)
+
+- (void)_fetchWeekAndPublish
+{
+    _weekInterval = WeekSnapshotInterval(NSDate.date);
+    [self _fetchEventsWithStartDate:MakeDateWithNSDate(_weekInterval.startDate, _cal)
+                          endDate:MakeDateWithNSDate(_weekInterval.endDate, _cal) refetch:NO];
+    [self _filterEvents];
+}
 
 - (void)_fetchSourcesAndCalendars {
     //os_log(OS_LOG_DEFAULT, " %s", __FUNCTION__);
@@ -260,18 +264,8 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
         return;
     }
     
-    // Reduce the range [startMoDate, endMoDate] based on dates previously fetched.
-    NSMutableIndexSet *notYetFetchedDates = [NSMutableIndexSet new];
-    for (NSInteger julian = startMoDate.julian; julian <= endMoDate.julian; julian++) {
-        if (![_previouslyFetchedDates containsIndex:julian]) {
-            [notYetFetchedDates addIndex:julian];
-        }
-    }
-    if (notYetFetchedDates.count > 0) {
-        startMoDate = MakeGregorian(notYetFetchedDates.firstIndex);
-        endMoDate   = MakeGregorian(notYetFetchedDates.lastIndex);
-    }
-    
+    // Query the full half-open interval when any date is missing. Keeping
+    // both bounds intact avoids dropping the last uncached day.
     // Update _previouslyFetchedDates for this fetch.
     [_previouslyFetchedDates addIndexesInRange:dateRange];
     
@@ -279,8 +273,12 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     NSDate *endDate   = MakeNSDateWithDate(endMoDate,   _cal);
     NSArray *cals = [self _validCalendars];
     NSPredicate *predicate = [_store predicateForEventsWithStartDate:startDate endDate:endDate calendars:cals];
-    NSArray *events = [_store eventsMatchingPredicate:predicate];
+    NSArray *events = self.calendarAccessGranted ? [_store eventsMatchingPredicate:predicate] : @[];
     NSMutableDictionary *eventsForDate = [NSMutableDictionary new];
+    for (NSDate *day = startDate; [day compare:endDate] == NSOrderedAscending;
+         day = [_cal dateByAddingUnit:NSCalendarUnitDay value:1 toDate:day options:0]) {
+        eventsForDate[day] = [NSMutableArray new];
+    }
     
     // Does EKEvent still respond to the private 'participationStatus'
     // selector? Check once instead of risking an NSUndefinedKeyException
@@ -311,7 +309,11 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
         NSDate *date  = [event.startDate laterDate:startDate];
         NSDate *final = [event.endDate earlierDate:endDate];
         date  = [_cal startOfDayForDate:date];
-        while ([date compare:final] == NSOrderedAscending) {
+        BOOL pointEvent = [event.startDate isEqualToDate:event.endDate]
+            && [event.startDate compare:startDate] != NSOrderedAscending
+            && [event.startDate compare:endDate] == NSOrderedAscending;
+        while ([date compare:final] == NSOrderedAscending || pointEvent) {
+            pointEvent = NO;
             
             NSDate *nextDate = [_cal dateByAddingUnit:NSCalendarUnitDay value:1 toDate:date options:0];
             nextDate = [_cal startOfDayForDate:nextDate];
@@ -352,12 +354,22 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
             else if (e1.isAllDay && e2.isAllDay) { return [e1.event.calendar.title compare:e2.event.calendar.title];}
             else if (e1.isAllDay) { return NSOrderedAscending;  }
             else if (e2.isAllDay) { return NSOrderedDescending; }
-            else { return [e1.event.startDate compare:e2.event.startDate]; }
+            else {
+                NSComparisonResult order = [e1.event.startDate compare:e2.event.startDate];
+                if (order != NSOrderedSame) return order;
+                order = [(e1.event.title ?: @"") compare:(e2.event.title ?: @"")];
+                if (order != NSOrderedSame) return order;
+                return [(e1.event.eventIdentifier ?: @"") compare:(e2.event.eventIdentifier ?: @"")];
+            }
         }];
     }
     
-    [_eventsForDate addEntriesFromDictionary:eventsForDate];
-    [self _filterEvents];
+    // Empty buckets replace old cache entries but are not published as
+    // dates with events (the agenda distinguishes nil from nonempty arrays).
+    for (NSDate *day in eventsForDate) {
+        if ([eventsForDate[day] count]) _eventsForDate[day] = eventsForDate[day];
+        else [_eventsForDate removeObjectForKey:day];
+    }
 }
 
 - (void)_filterEvents {
@@ -385,6 +397,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
             }
         }
     }
+    if (_weekInterval) PublishWeekSnapshot(filteredEventsForDate, self, _weekInterval);
     // Notify the delegate from inside the _queueIsol block so the
     // write to _filteredEventsForDate is visible before the delegate
     // reads it back via -filteredEventsForDate.

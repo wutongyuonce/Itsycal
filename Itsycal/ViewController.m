@@ -53,6 +53,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     BOOL       _clockUsesSeconds;
     BOOL       _clockUsesTime;
     BOOL       _shouldShowMeetingIndicator;
+    BOOL       _showWidgetDay;
     NSRect     _screenFrame;
     NSRect     _fallbackAnchor;
     BOOL       _usesFallbackPosition;
@@ -365,7 +366,9 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     NSInteger i = 0;
 
     [optMenu insertItemWithTitle:NSLocalizedString(@"About Itsycal", @"") action:@selector(showAbout:) keyEquivalent:@"" atIndex:i++];
-    [optMenu insertItemWithTitle:NSLocalizedString(@"Check for Updates…", @"") action:@selector(checkForUpdates:) keyEquivalent:@"" atIndex:i++];
+    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
+        [optMenu insertItemWithTitle:NSLocalizedString(@"Check for Updates…", @"") action:@selector(checkForUpdates:) keyEquivalent:@"" atIndex:i++];
+    }
     [optMenu insertItem:[NSMenuItem separatorItem] atIndex:i++];
     [optMenu insertItemWithTitle:NSLocalizedString(@"Go to Date…", @"") action:@selector(showDatePickerPopover:) keyEquivalent:@"T" atIndex:i++];
     [optMenu insertItem:[NSMenuItem separatorItem] atIndex:i++];
@@ -451,7 +454,10 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)checkForUpdates:(id)sender
 {
-    [[SUUpdater sharedUpdater] checkForUpdates:self];
+    // This personal build has no update feed.
+    if ([NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]) {
+        [[SUUpdater sharedUpdater] checkForUpdates:self];
+    }
 }
 
 - (void)openDateAndTimePrefs:(id)sender
@@ -1019,6 +1025,19 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [self statusItemClicked:self];
 }
 
+- (void)widgetDateReceived:(NSDate *)showDate
+{
+    [self dateURLReceived:showDate];
+    _showWidgetDay = YES;
+    [_ec refetchAll];
+    [self updateAgenda];
+    BOOL selected = NO;
+    for (id entry in [_ec sourcesAndCalendars]) {
+        if ([entry isKindOfClass:CalendarInfo.class] && [entry selected]) selected = YES;
+    }
+    if (!_ec.calendarAccessGranted || !selected) [self showPrefs:self];
+}
+
 - (void)dateURLReceived:(NSDate *)showDate
 {
     // We received a URL asking us to show a specific date.
@@ -1126,6 +1145,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)calendarSelectionChanged:(MoCalendar *)cal
 {
+    _showWidgetDay = NO;
     [self updateAgenda];
 }
 
@@ -1221,7 +1241,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)updateAgenda
 {
-    NSInteger days = [self daysToShowInAgenda];
+    NSInteger days = _showWidgetDay ? 1 : [self daysToShowInAgenda];
     _agendaVC.events = [self datesAndEventsForDate:_moCal.selectedDate days:days];
     [_agendaVC reloadData];
     [self showMeetingIndicatorIfNecessary];
@@ -1441,6 +1461,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf resetCalendarToToday];
+        [strongSelf->_ec refetchAll];
         [strongSelf updateMenubarIcon];
         [strongSelf updateTimer];
     }];
@@ -1482,6 +1503,13 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         if (!strongSelf) return;
         [strongSelf updateMenubarIcon];
         [strongSelf updateTimer];
+        [strongSelf->_ec refetchAll];
+    }];
+    [_notificationTokens addObject:token];
+
+    token = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) [strongSelf->_ec refetchAll];
     }];
     [_notificationTokens addObject:token];
 
@@ -1498,6 +1526,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     if ([keyPath isEqualToString:kShowEventDays] ||
         [keyPath isEqualToString:kShowDaysWithNoEventsInAgenda]) {
+        _showWidgetDay = NO;
         [self updateAgenda];
     }
     else if ([keyPath isEqualToString:kMenuBarIconType] ||
