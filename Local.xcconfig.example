@@ -13,7 +13,7 @@ ENABLE_HARDENED_RUNTIME = NO
 // ITSYCAL_BUNDLE_ID = com.<your-name>.Itsycal
 // WEEK_APP_GROUP = <your-team-id>.com.<your-name>.Itsycal
 //
-// The widget's bundle ID is ITSYCAL_BUNDLE_ID plus .WeekWidget. Bundle IDs
+// The widget's bundle ID is ITSYCAL_BUNDLE_ID plus .Widgets. Bundle IDs
 // are globally unique across Apple accounts, so choose your own.
 // macOS permits team-prefixed App Groups without registering a group on the
 // developer website. Both targets must use the same team and group. Xcode

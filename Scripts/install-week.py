@@ -24,8 +24,8 @@ def version(app: str) -> str:
         return plistlib.load(handle)['CFBundleVersion']
 
 
-def stop(path: str, name: str) -> None:
-    pattern = '^' + re.escape(path) + '( |$)'
+def stop(pattern: str, name: str) -> None:
+    """Stop this user's processes whose command line matches pattern."""
     pids = subprocess.run(['pgrep', '-U', str(os.getuid()), '-f', pattern],
                           text=True, capture_output=True).stdout.split()
     for pid in pids:
@@ -81,9 +81,9 @@ def main() -> None:
         # Everything before the swap leaves the installed app untouched.
         if had_old and version(args.app) == version(args.stage):
             fail('The built bundle has the same build as the installed app.')
-        stop(os.path.join(args.app, 'Contents', 'MacOS', 'Itsycal'), 'Itsycal')
-        stop(os.path.join(args.app, 'Contents', 'PlugIns', 'WeekWidget.appex', 'Contents', 'MacOS', 'WeekWidget'),
-             'Widget')
+        stop('^' + re.escape(os.path.join(args.app, 'Contents', 'MacOS', 'Itsycal')) + '( |$)', 'Itsycal')
+        # Any embedded extension, including ones a newer build renamed or removed.
+        stop('^' + re.escape(os.path.join(args.app, 'Contents', 'PlugIns', '')), 'Widget')
         if had_old:
             # One filesystem operation: after this, neither path is ever missing.
             swap(args.app, args.stage)

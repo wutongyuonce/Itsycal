@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
 
-@interface WeekWidgetReloader : NSObject
+@interface WidgetReloader : NSObject
 + (void)reload;
 @end

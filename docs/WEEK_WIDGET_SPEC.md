@@ -70,7 +70,7 @@ flowchart LR
     EC --> UI[菜单栏月历与议程]
     EC --> EX[WeekSnapshot\n两个月范围与导出]
     EX --> SH[(App Group\nweek.json)]
-    EX --> WR[WeekWidgetReloader]
+    EX --> WR[WidgetReloader]
     SH --> TP[PeriodProvider\n时间线]
     NI[SwitchPeriodIntent] --> ND[(App Group\nnavigation.week/.month)]
     ND --> TP
@@ -92,7 +92,7 @@ flowchart LR
 
 ## 6. Fork 身份
 
-- 主应用 Bundle ID 为 `ITSYCAL_BUNDLE_ID`（默认 `com.wutongyuonce.Itsycal`），扩展为其后加 `.WeekWidget`（两个小组件在同一扩展内，kind 为 `ItsycalWeek` 与 `ItsycalMonth`）；显示名 Itsycal，安装为 `Itsycal.app`。
+- 主应用 Bundle ID 为 `ITSYCAL_BUNDLE_ID`（默认 `com.wutongyuonce.Itsycal`），扩展为其后加 `.Widgets`（两个小组件在同一扩展内，kind 为 `ItsycalWeek` 与 `ItsycalMonth`）；显示名 Itsycal，安装为 `Itsycal.app`。
 - URL scheme `itsycal-week`。App Group 由 `WEEK_APP_GROUP` 决定（默认 `group.com.wutongyuonce.Itsycal`）。两者都由 `Local.xcconfig` 覆盖。
 - 扩展启用 sandbox；主应用不是沙盒应用。不含更新器。保留 MIT 许可与上游署名，独立演进，不自动合并上游。
 

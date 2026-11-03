@@ -19,7 +19,7 @@ ITSYCAL_BUNDLE_ID = com.你的名字.Itsycal
 WEEK_APP_GROUP = 你的团队ID.com.你的名字.Itsycal
 ```
 
-- 两个 target 都读取这份配置。扩展的 Bundle ID 自动为 `$(ITSYCAL_BUNDLE_ID).WeekWidget`。Bundle ID 在 Apple 账号间唯一，因此除本仓库维护者外都要换成自己的。
+- 两个 target 都读取这份配置。扩展的 Bundle ID 自动为 `$(ITSYCAL_BUNDLE_ID).Widgets`。Bundle ID 在 Apple 账号间唯一，因此除本仓库维护者外都要换成自己的。
 - macOS 支持 `团队ID.组名` 格式的 App Group，无需单独注册。实际能力以 Xcode 签名结果为准。
 - 不要提交证书、私钥、profile 或 `Local.xcconfig`。
 
@@ -40,7 +40,7 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
 替换由 `Scripts/install-week.py` 完成：
 
 - 先检查两种情况：安装位置有 Bundle ID 不同的同名 App，或产物与已安装版本的 build 相同。遇到任何一种都拒绝安装，已安装的 App 不受影响。
-- 按完整路径停止当前用户的旧主应用和 Widget 扩展进程，必要时发送 SIGKILL。确认进程退出后，用一次原子操作交换新旧目录，避免挂起的旧扩展提交旧版本时间线。
+- 按完整路径停止当前用户的旧主应用和安装位置 `Contents/PlugIns` 下的所有扩展进程（包括新版本已改名或删除的扩展），必要时发送 SIGKILL。确认进程退出后，用一次原子操作交换新旧目录，避免挂起的旧扩展提交旧版本时间线。
 - 交换后签名验证失败会删除新版并恢复旧版；任何失败后都会重新打开保留下来的 App。
 - 整个过程忽略 INT/TERM/HUP，不会停在半途。它不是断电安全的事务安装器：若被 SIGKILL，脚本不删除任何残留，旧版留在安装位置同目录的 `.itsycal-week-install.*` 或 `.itsycal-week-backup.*` 中，失败信息会列出路径。
 
@@ -77,8 +77,8 @@ xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
 生成与扩展相同 SwiftUI View 的预览图（合成数据，不是系统截图；README 使用真实桌面截图）：
 
 ```sh
-swiftc WeekWidget/WeekModel.swift WeekWidget/WeekPreview.swift WeekWidget/WidgetChrome.swift \
-  WeekWidget/WeekView.swift WeekWidget/MonthView.swift WeekWidget/WeekIntent.swift \
+swiftc ItsycalWidgets/WeekModel.swift ItsycalWidgets/WeekPreview.swift ItsycalWidgets/WidgetChrome.swift \
+  ItsycalWidgets/WeekView.swift ItsycalWidgets/MonthView.swift ItsycalWidgets/WeekIntent.swift \
   Tests/RenderWeek.swift -o /tmp/itsycal-render-week
 /tmp/itsycal-render-week /tmp/itsycal-week-previews
 ```

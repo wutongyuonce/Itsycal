@@ -23,7 +23,7 @@ struct WeekEvent: Codable {
     }
 }
 
-enum WeekShared {
+enum WidgetShared {
     static var group: String? { Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String }
 }
 
@@ -65,7 +65,7 @@ struct WeekSnapshot: Codable {
     let days: [String: [WeekEvent]]
 
     static func load() -> WeekSnapshot? {
-        guard let group = WeekShared.group,
+        guard let group = WidgetShared.group,
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
               let data = try? Data(contentsOf: container.appendingPathComponent("week.json")),
               let snapshot = try? JSONDecoder().decode(Self.self, from: data),
@@ -116,7 +116,7 @@ struct PeriodNavigation {
 
     // One key per period holding [target, until], so readers never see half an update.
     private static func key(_ period: WidgetPeriod) -> String { "navigation.\(period.rawValue)" }
-    private static var defaults: UserDefaults? { WeekShared.group.flatMap(UserDefaults.init(suiteName:)) }
+    private static var defaults: UserDefaults? { WidgetShared.group.flatMap(UserDefaults.init(suiteName:)) }
 
     static func load(_ period: WidgetPeriod) -> PeriodNavigation? {
         guard let value = defaults?.array(forKey: key(period)) as? [TimeInterval], value.count == 2 else { return nil }

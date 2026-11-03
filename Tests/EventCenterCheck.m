@@ -5,7 +5,7 @@
 
 // Exercise the real grouping and week-interval code with an in-memory store.
 // No permission prompt or personal calendar query occurs, and no snapshot is written.
-@implementation WeekWidgetReloader
+@implementation WidgetReloader
 + (void)reload {}
 @end
 

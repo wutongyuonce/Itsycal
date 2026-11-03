@@ -92,5 +92,5 @@ void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center,
     static NSDictionary *published; // Only touched on EventCenter's serial work queue.
     if ([content isEqualToDictionary:published]) return;
     published = content;
-    [WeekWidgetReloader reload];
+    [WidgetReloader reload];
 }
