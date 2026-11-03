@@ -53,8 +53,13 @@ if ! python3 Scripts/install-week.py --app "$app" --stage "$stage/.new.app" --ba
 fi
 rm -rf "$stage" "$backup"
 codesign --verify --deep --strict "$app"
-# Prefer the installed bundle over the duplicate registered during xcodebuild.
-"$lsregister" -u "$product"
+# Every build (this one, Debug builds, old derived data) registers another copy
+# with the same bundle ID. chronod may then read widget descriptors from a stale
+# copy, so new widgets never reach the gallery. Keep only the installed bundle.
+"$lsregister" -dump 2>/dev/null | awk -v id="$bundle_id" -v keep="$app" '
+    /^path:/ { sub(/^path: +/, ""); sub(/ \(0x[0-9a-f]+\)$/, ""); path = $0 }
+    /^identifier:/ && $2 == id && path != keep { print path; path = "" }' | sort -u |
+while IFS= read -r stale; do "$lsregister" -u "$stale" 2>/dev/null || true; done
 "$lsregister" -f "$app"
 # chronod can retain the old extension registration even after the old process
 # is stopped (Unknown extension process). Restart its per-user cache service.
@@ -62,4 +67,4 @@ codesign --verify --deep --strict "$app"
 killall chronod 2>/dev/null || true
 open "$app"
 printf '\nInstalled %s (build %s).\n' "$app" "$version"
-printf 'Add 本周日程 from the widget gallery; medium and extra-large are supported.\n'
+printf 'Add 本周日程 (medium/extra large) or 本月日程 (extra large) from the widget gallery.\n'

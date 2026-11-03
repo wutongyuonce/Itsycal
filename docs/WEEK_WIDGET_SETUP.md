@@ -35,7 +35,7 @@ bash Scripts/install-week.sh
 INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
 ```
 
-脚本用 `Local.xcconfig` 构建 Release，以当前时间作为 build number（让 WidgetKit 放弃旧版本的时间线归档）并验证嵌套签名。然后替换安装位置（默认 `/Applications/Itsycal.app`），重新注册，重启用户的 chronod 缓存服务，并打开 App。其他小组件会短暂重载，系统数据库和偏好不会被重置。
+脚本用 `Local.xcconfig` 构建 Release，以当前时间作为 build number（让 WidgetKit 放弃旧版本的时间线归档并重新读取小组件清单）并验证嵌套签名。然后替换安装位置（默认 `/Applications/Itsycal.app`），在 LaunchServices 中注销同一 Bundle ID 的其他副本（本次构建产物、Debug 构建和旧的 derived data）并只保留已安装的那份，重启用户的 chronod 缓存服务，并打开 App。其他小组件会短暂重载，系统数据库和偏好不会被重置。
 
 替换由 `Scripts/install-week.py` 完成：
 
@@ -58,6 +58,7 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
 
 - 正常时 `ItsycalWeek` 和 `ItsycalMonth` 各自 `reload: succeeded`，条目数见[规格第 4 节](WEEK_WIDGET_SPEC.md#4-数据状态与刷新)。
 - `Bundle version did not match` 或 `Unknown extension process`：旧扩展进程或旧注册仍在。重新运行安装脚本；若仍不行，退出并重开 Itsycal，然后关闭并重开小组件图库。
+- 图库里缺少某个小组件：搜日志里的 `Found: <CHSWidgetDescriptor`，应同时有 `kind: ItsycalWeek` 和 `kind: ItsycalMonth`。缺少时通常是系统从同 Bundle ID 的旧副本读了清单；用 `lsregister -dump | grep Itsycal.app` 检查，重新运行安装脚本会注销旧副本并触发重新读取。
 - `plug-ins must be sandboxed`：构建后又做过临时 ad-hoc 深签，丢失了扩展的 sandbox entitlement。请用完整 Xcode 签名构建。
 - 共享组被拒绝：检查两端 entitlement、团队身份和实际的 `WeekAppGroup` 值。
 - `pluginkit` 能查到扩展，或出现单条 `purging ... isApple? false`，都不足以说明成功或失败，以日志和桌面画面为准。
