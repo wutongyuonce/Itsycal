@@ -104,7 +104,7 @@
     [Sizer shared];
 
     // Create our Application Support folder if it doesn't exist.
-    // ~/Library/Application Support/com.mowglii.ItsycalApp/
+    // ~/Library/Application Support/<bundle identifier>/
     NSURL *url = [[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
     if (url) {
         NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
@@ -144,17 +144,22 @@
     // is created because Theme instantiation relies on checking a
     // property on the window to determine its appearance.
     [Theme bind:@"themePreference" toObject:[NSUserDefaultsController sharedUserDefaultsController] withKeyPath:[@"values." stringByAppendingString:kThemePreference] options:@{NSContinuouslyUpdatesValueBindingOption: @(YES)}];
+
+    // A launch-by-URL delivers the URL before this method; handle it once
+    // the status item exists.
+    if (_pendingURLs) {
+        NSArray<NSURL *> *urls = _pendingURLs;
+        _pendingURLs = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self application:NSApp openURLs:urls];
+        });
+    }
 }
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
     [_vc removeStatusItem];
     [[MASShortcutMonitor sharedMonitor] unregisterAllShortcuts];
-
-    if (_pendingURLs) {
-        [self application:NSApp openURLs:_pendingURLs];
-        _pendingURLs = nil;
-    }
 }
 
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls
