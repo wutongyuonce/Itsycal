@@ -1,17 +1,23 @@
+import AppIntents
 import SwiftUI
 
 struct WeekView: View {
-    let date: Date
+    let date: Date  // Now: drives today, past dimming and staleness.
+    let shown: Date // Any date inside the displayed week.
     let snapshot: WeekSnapshot?
     var compact = true
 
     private let accent = Color(red: 0.19, green: 0.39, blue: 0.84)
     private var calendar: Calendar { WeekDates.calendar }
     private var weekStart: Int { min(max(snapshot?.weekStart ?? 1, 0), 6) }
-    private var dates: [Date] { WeekDates.days(containing: date, weekStart: weekStart, calendar: calendar) }
+    private var dates: [Date] { WeekDates.days(containing: shown, weekStart: weekStart, calendar: calendar) }
+    private var nextWeek: Bool { WeekDates.isNextWeek(shown, today: date, weekStart: weekStart, calendar: calendar) }
     private var issue: String? {
         guard let snapshot else { return "打开 Itsycal 设置日程" }
-        return snapshot.message(at: date, calendar: calendar)
+        return snapshot.message(for: shown, calendar: calendar)
+    }
+    private var canShowNextWeek: Bool {
+        snapshot?.message(for: calendar.date(byAdding: .day, value: 7, to: date)!, calendar: calendar) == nil
     }
     private var stale: Bool {
         guard let snapshot else { return false }
@@ -19,37 +25,57 @@ struct WeekView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !compact { header }
+        VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+            header
             columns
         }
         .padding(compact ? 8 : 16)
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Link(destination: WeekDates.link(date, calendar: calendar)) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("本周").font(.system(size: 12, weight: .semibold))
-                    Text(rangeLabel).font(.system(size: 10)).foregroundStyle(.secondary)
+        HStack(spacing: compact ? 6 : 8) {
+            Link(destination: WeekDates.link(nextWeek ? dates[0] : date, calendar: calendar)) {
+                HStack(alignment: .firstTextBaseline, spacing: compact ? 4 : 6) {
+                    Text(nextWeek ? "下周" : "本周").font(.system(size: compact ? 11 : 12, weight: .semibold))
+                    Text(rangeLabel).font(.system(size: compact ? 9 : 10)).foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             .buttonStyle(.plain)
+            HStack(spacing: 2) {
+                switchButton("chevron.left", next: false, enabled: nextWeek, label: "回到本周")
+                switchButton("chevron.right", next: true, enabled: !nextWeek && canShowNextWeek, label: "查看下周")
+            }
             Spacer(minLength: 4)
             if issue == nil {
-                Text("\(totalCount) 项日程")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(compact ? "\(totalCount) 项" : "\(totalCount) 项日程")
+                    .font(.system(size: compact ? 9 : 10)).foregroundStyle(.secondary)
             }
         }
-        .frame(height: 18)
+        .frame(height: compact ? 16 : 18)
         .padding(.horizontal, 3)
+    }
+
+    @ViewBuilder
+    private func switchButton(_ symbol: String, next: Bool, enabled: Bool, label: String) -> some View {
+        let icon = Image(systemName: symbol)
+            .font(.system(size: compact ? 8 : 9, weight: .bold))
+            .frame(width: compact ? 16 : 18, height: compact ? 14 : 16)
+            .background(Color.primary.opacity(enabled ? 0.07 : 0.03), in: RoundedRectangle(cornerRadius: 4))
+        if enabled {
+            Button(intent: SwitchWeekIntent(next: next)) { icon.foregroundStyle(.secondary) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
+        } else {
+            icon.foregroundStyle(.quaternary).accessibilityHidden(true)
+        }
     }
 
     private var rangeLabel: String {
         let formatter = DateIntervalFormatter()
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
-        formatter.dateTemplate = "yMMMd"
+        formatter.dateTemplate = compact ? "MMMd" : "yMMMd"
         return formatter.string(from: dates[0], to: dates[6])
     }
 

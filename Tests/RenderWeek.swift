@@ -24,18 +24,30 @@ struct RenderWeek {
                                  endsHere: false, continues: false, color: row.isMultiple(of: 2) ? [0.25, 0.48, 0.75] : [0.35, 0.62, 0.49])
             }
         }
+        for (index, day) in WeekDates.days(containing: calendar.date(byAdding: .day, value: 7, to: date)!,
+                                           weekStart: weekStart, calendar: calendar).enumerated() {
+            let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: day)!
+            buckets[WeekDates.key(day, calendar: calendar)] = index.isMultiple(of: 2) ? [] : [
+                WeekEvent(id: "next-\(index)", title: "下周安排", start: start.timeIntervalSince1970,
+                          end: start.addingTimeInterval(3600).timeIntervalSince1970, allDay: false, spansDay: false,
+                          startsHere: true, endsHere: false, continues: false, color: [0.25, 0.48, 0.75])
+            ]
+        }
         let snapshot = WeekSnapshot(version: 2, generatedAt: date.timeIntervalSince1970,
                                     timeZone: calendar.timeZone.identifier, start: monday.timeIntervalSince1970,
-                                    end: calendar.date(byAdding: .day, value: 7, to: monday)!.timeIntervalSince1970,
+                                    end: calendar.date(byAdding: .day, value: 14, to: monday)!.timeIntervalSince1970,
                                     status: "ready", weekStart: weekStart, days: buckets)
-        for (width, height, suffix) in [(704.0, 344.0, ""), (344.0, 164.0, "-compact")] {
+        let nextWeek = calendar.date(byAdding: .day, value: 7, to: date)!
+        for (width, height, size) in [(704.0, 344.0, ""), (344.0, 164.0, "-compact")] {
+        for (shown, week) in [(date, ""), (nextWeek, "-next")] {
         for dark in [false, true] {
-            let view = WeekView(date: date, snapshot: snapshot, compact: !suffix.isEmpty)
+            let suffix = size + week
+            let view = WeekView(date: date, shown: shown, snapshot: snapshot, compact: !size.isEmpty)
                 .frame(width: width, height: height)
                 .background(dark ? Color(nsColor: .windowBackgroundColor) : Color.white)
                 .environment(\.colorScheme, dark ? .dark : .light)
             let renderer = ImageRenderer(content: view)
-            renderer.scale = suffix.isEmpty ? 2 : 1
+            renderer.scale = size.isEmpty ? 2 : 1
             guard let image = renderer.nsImage,
                   let tiff = image.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiff),
@@ -43,6 +55,7 @@ struct RenderWeek {
             let url = URL(fileURLWithPath: folder).appendingPathComponent("week-\(dark ? "dark" : "light")\(suffix).png")
             try data.write(to: url)
             print(url.path)
+        }
         }
         }
     }

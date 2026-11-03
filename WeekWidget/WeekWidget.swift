@@ -3,23 +3,27 @@ import WidgetKit
 
 struct WeekEntry: TimelineEntry {
     let date: Date
+    let shown: Date // A date inside the displayed week.
     let snapshot: WeekSnapshot?
 }
 
 struct WeekProvider: TimelineProvider {
     func placeholder(in context: Context) -> WeekEntry {
-        WeekEntry(date: .now, snapshot: .preview)
+        WeekEntry(date: .now, shown: .now, snapshot: .preview)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (WeekEntry) -> Void) {
-        completion(WeekEntry(date: .now, snapshot: context.isPreview ? .preview : .load()))
+        let now = Date()
+        if context.isPreview { return completion(WeekEntry(date: now, shown: now, snapshot: .preview)) }
+        completion(WeekEntry(date: now, shown: WeekNavigation.load()?.shown(at: now) ?? now, snapshot: .load()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WeekEntry>) -> Void) {
         let now = Date()
         let snapshot = WeekSnapshot.load()
-        let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar)
-            .map { WeekEntry(date: $0, snapshot: snapshot) }
+        let navigation = WeekNavigation.load()
+        let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation)
+            .map { WeekEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
         completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(3600))))
     }
 }
@@ -29,7 +33,7 @@ private struct WeekWidgetContent: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        WeekView(date: entry.date, snapshot: entry.snapshot, compact: family == .systemMedium)
+        WeekView(date: entry.date, shown: entry.shown, snapshot: entry.snapshot, compact: family == .systemMedium)
     }
 }
 

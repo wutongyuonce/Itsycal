@@ -23,6 +23,10 @@ struct WeekEvent: Codable, Identifiable {
     }
 }
 
+enum WeekShared {
+    static var group: String? { Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String }
+}
+
 struct WeekSnapshot: Codable {
     let version: Int
     let generatedAt: TimeInterval
@@ -34,7 +38,7 @@ struct WeekSnapshot: Codable {
     let days: [String: [WeekEvent]]
 
     static func load() -> WeekSnapshot? {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String,
+        guard let group = WeekShared.group,
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
               let data = try? Data(contentsOf: container.appendingPathComponent("week.json")),
               let snapshot = try? JSONDecoder().decode(Self.self, from: data),
@@ -42,23 +46,62 @@ struct WeekSnapshot: Codable {
         return snapshot
     }
 
-    func message(at date: Date, calendar: Calendar) -> String? {
+    /// Why the week containing `shown` cannot be displayed, or nil when it can.
+    func message(for shown: Date, calendar: Calendar) -> String? {
         if status == "permission" { return "打开 Itsycal，允许访问日历" }
         if status == "calendars" { return "在 Itsycal 中选择要显示的日历" }
         guard status == "ready" else { return "打开 Itsycal 更新日程" }
         guard (0...6).contains(weekStart) else { return "打开 Itsycal 更新日程" }
         if timeZone != calendar.timeZone.identifier { return "时区已改变，打开 Itsycal 更新日程" }
-        let first = WeekDates.weekStartDate(containing: date, weekStart: weekStart, calendar: calendar)
+        let first = WeekDates.weekStartDate(containing: shown, weekStart: weekStart, calendar: calendar)
         let next = calendar.date(byAdding: .day, value: 7, to: first)!
         if first.timeIntervalSince1970 < start || next.timeIntervalSince1970 > end {
-            return "打开 Itsycal 获取本周日程"
+            return "打开 Itsycal 获取这一周的日程"
         }
         // Missing buckets mean incomplete data, never an empty calendar.
-        if WeekDates.days(containing: date, weekStart: weekStart, calendar: calendar)
+        if WeekDates.days(containing: shown, weekStart: weekStart, calendar: calendar)
             .contains(where: { days[WeekDates.key($0, calendar: calendar)] == nil }) {
             return "打开 Itsycal 更新日程"
         }
         return nil
+    }
+}
+
+/// Next-week view chosen in the widget. Shared by every widget instance and
+/// expires, so the widget always falls back to the current week.
+struct WeekNavigation: Equatable {
+    static let idle: TimeInterval = 15 * 60
+
+    let week: Date   // An instant inside the shown week.
+    let until: Date
+
+    func shown(at date: Date) -> Date { date < until ? week : date }
+
+    static func nextWeek(from now: Date, calendar: Calendar) -> WeekNavigation {
+        WeekNavigation(week: calendar.date(byAdding: .day, value: 7, to: now)!,
+                       until: now.addingTimeInterval(idle))
+    }
+
+    private static let weekKey = "navigationWeek"
+    private static let untilKey = "navigationUntil"
+    private static var defaults: UserDefaults? { WeekShared.group.flatMap(UserDefaults.init(suiteName:)) }
+
+    static func load() -> WeekNavigation? {
+        guard let defaults, let week = defaults.object(forKey: weekKey) as? TimeInterval,
+              let until = defaults.object(forKey: untilKey) as? TimeInterval else { return nil }
+        return WeekNavigation(week: Date(timeIntervalSince1970: week), until: Date(timeIntervalSince1970: until))
+    }
+
+    /// nil returns to the current week.
+    static func store(_ navigation: WeekNavigation?) {
+        guard let defaults else { return }
+        if let navigation {
+            defaults.set(navigation.week.timeIntervalSince1970, forKey: weekKey)
+            defaults.set(navigation.until.timeIntervalSince1970, forKey: untilKey)
+        } else {
+            defaults.removeObject(forKey: weekKey)
+            defaults.removeObject(forKey: untilKey)
+        }
     }
 }
 
@@ -79,6 +122,12 @@ enum WeekDates {
     static func days(containing date: Date, weekStart: Int, calendar: Calendar) -> [Date] {
         let first = weekStartDate(containing: date, weekStart: weekStart, calendar: calendar)
         return (0..<7).map { calendar.date(byAdding: .day, value: $0, to: first)! }
+    }
+
+    static func isNextWeek(_ shown: Date, today: Date, weekStart: Int, calendar: Calendar) -> Bool {
+        let thisWeek = weekStartDate(containing: today, weekStart: weekStart, calendar: calendar)
+        return calendar.isDate(weekStartDate(containing: shown, weekStart: weekStart, calendar: calendar),
+                               inSameDayAs: calendar.date(byAdding: .day, value: 7, to: thisWeek)!)
     }
 
     static func key(_ date: Date, calendar: Calendar) -> String {
@@ -107,8 +156,12 @@ enum WeekDates {
         min(4, max(0, Int((height - reservedHeight(compact: compact)) / eventPitch(compact: compact))))
     }
 
-    static func timelineDates(from date: Date, calendar: Calendar) -> [Date] {
+    /// Now, each of the next 14 local midnights and, if later than now, the
+    /// moment the next-week view expires.
+    static func timelineDates(from date: Date, calendar: Calendar, navigation: WeekNavigation? = nil) -> [Date] {
         let midnight = calendar.startOfDay(for: date)
-        return [date] + (1...14).map { calendar.date(byAdding: .day, value: $0, to: midnight)! }
+        var dates = [date] + (1...14).map { calendar.date(byAdding: .day, value: $0, to: midnight)! }
+        if let until = navigation?.until, until > date { dates.append(until) }
+        return dates.sorted()
     }
 }

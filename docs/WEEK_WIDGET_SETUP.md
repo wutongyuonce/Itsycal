@@ -70,7 +70,7 @@ xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
 渲染与扩展相同 SwiftUI View 的示例画面：
 
 ```sh
-swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift \
+swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift WeekWidget/WeekIntent.swift \
   Tests/RenderWeek.swift -o /tmp/itsycal-render-week
 /tmp/itsycal-render-week /tmp/itsycal-week-previews
 ```
@@ -80,7 +80,8 @@ swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift \
 ## 真机验收
 
 - 七列按设置的一周起始日排列；修改设置后自动刷新。过去整列弱化，当天强调。
-- 中号无顶部信息，超大号有日期范围与总数；两者最多四项。
+- 两种尺寸都有“本周/下周”、日期范围、切换按钮与总数的顶栏；中号每天最多三项，超大号最多四项。
+- 点 `›` 切到下周、点 `‹` 回到本周，不打开主应用；15 分钟不操作自动回到本周；多个实例同步切换。
 - 主应用翻到其他月份后，小组件仍显示本周。
 - 修改日历事件或已选日历，等待系统刷新后同步；主应用需要保持运行。
 - 点击日期和溢出入口打开完整当天，主应用原议程隐藏偏好不妨碍这个入口。

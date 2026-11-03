@@ -47,14 +47,25 @@ struct WeekModelCheck {
         let buckets = Dictionary(uniqueKeysWithValues: days.map { (WeekDates.key($0, calendar: calendar), [WeekEvent]()) })
         let good = WeekSnapshot(version: 2, generatedAt: sunday.timeIntervalSince1970, timeZone: calendar.timeZone.identifier,
                                 start: monday.timeIntervalSince1970, end: coverageEnd.timeIntervalSince1970, status: "ready", weekStart: 1, days: buckets)
-        assert(good.message(at: sunday, calendar: calendar) == nil)
+        assert(good.message(for: sunday, calendar: calendar) == nil)
+        let nextSunday = calendar.date(byAdding: .day, value: 7, to: sunday)!
+        assert(good.message(for: nextSunday, calendar: calendar) != nil, "Missing buckets must not become an empty week")
         let later = calendar.date(byAdding: .day, value: 14, to: sunday)!
-        assert(good.message(at: later, calendar: calendar) != nil, "Missing data must not become an empty week")
+        assert(good.message(for: later, calendar: calendar) != nil, "Missing data must not become an empty week")
         var otherZone = calendar
         otherZone.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        assert(good.message(at: sunday, calendar: otherZone) != nil)
+        assert(good.message(for: sunday, calendar: otherZone) != nil)
+
+        // Next-week view: one week ahead, expires, and is a timeline boundary.
+        let navigation = WeekNavigation.nextWeek(from: sunday, calendar: calendar)
+        assert(WeekDates.isNextWeek(navigation.shown(at: sunday), today: sunday, weekStart: 1, calendar: calendar))
+        assert(!WeekDates.isNextWeek(sunday, today: sunday, weekStart: 1, calendar: calendar))
+        assert(navigation.shown(at: navigation.until) == navigation.until, "Expired navigation returns to the current week")
+        let navigated = WeekDates.timelineDates(from: sunday, calendar: calendar, navigation: navigation)
+        assert(navigated.count == 16 && navigated.contains(navigation.until) && navigated == navigated.sorted())
+        assert(WeekDates.timelineDates(from: navigation.until, calendar: calendar, navigation: navigation).count == 15)
         let roundtrip = try JSONDecoder().decode(WeekSnapshot.self, from: JSONEncoder().encode(good))
         assert(roundtrip.days.count == 7)
-        print("WeekModel checks passed: configurable week start, year boundary, DST, capacity, links, coverage and timezone")
+        print("WeekModel checks passed: configurable week start, year boundary, DST, capacity, links, coverage, timezone and next-week view")
     }
 }
