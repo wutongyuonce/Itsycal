@@ -47,6 +47,8 @@ if ! python3 Scripts/install-week.py --app "$app" --stage "$stage/.new.app" --ba
     for leftover in "$stage" "$backup"; do
         [[ -e "$leftover" ]] && echo "Install failed; bundles kept for manual recovery in $leftover" >&2
     done
+    # The installer may have stopped the previous app before failing.
+    [[ -e "$app" ]] && open "$app"
     exit 1
 fi
 rm -rf "$stage" "$backup"

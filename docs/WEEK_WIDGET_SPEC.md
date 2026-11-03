@@ -25,7 +25,7 @@
 
 ## 3. 交互
 
-**打开主应用：** 点击日期、事件或溢出入口，经 `itsycal-week://date/yyyy-MM-dd?widget=1` 打开该日完整议程；点击“本周”标题打开今天，点击“下周”标题打开下周首日。主应用收到 `widget=1` 时临时显示一天议程，不修改议程隐藏偏好；用户选择别的日期或修改议程设置后恢复常规行为。日历未授权或没有已选日历时同时打开设置窗口；判断在本次重新获取日历之后进行，冷启动时也成立。
+**打开主应用：** 点击日期、事件或溢出入口，经 `itsycal-week://date/yyyy-MM-dd?widget=1` 打开该日完整议程；点击“本周”标题打开今天，点击“下周”标题打开下周首日。Itsycal 未运行时，链接在启动完成后处理。主应用收到 `widget=1` 时临时显示一天议程，不修改议程隐藏偏好；窗口关闭、用户选择别的日期或修改议程设置后恢复常规行为。日历未授权或没有已选日历时同时打开设置窗口；判断在本次重新获取日历之后进行。
 
 **本周/下周切换：** 按钮是交互式小组件按钮（`Button(intent:)` + `SwitchWeekIntent`），在扩展进程内执行，不打开主应用。
 
@@ -84,8 +84,8 @@ flowchart LR
 
 ## 6. Fork 身份
 
-- 主应用 `com.wutongyuonce.Itsycal`，扩展 `com.wutongyuonce.Itsycal.WeekWidget`，显示名 Itsycal，安装为 `Itsycal.app`。
-- URL scheme `itsycal-week`。App Group 默认 `group.com.wutongyuonce.Itsycal`，由 `Local.xcconfig` 的 `WEEK_APP_GROUP` 覆盖。
+- 主应用 Bundle ID 为 `ITSYCAL_BUNDLE_ID`（默认 `com.wutongyuonce.Itsycal`），扩展为其后加 `.WeekWidget`；显示名 Itsycal，安装为 `Itsycal.app`。
+- URL scheme `itsycal-week`。App Group 由 `WEEK_APP_GROUP` 决定（默认 `group.com.wutongyuonce.Itsycal`）。两者都由 `Local.xcconfig` 覆盖。
 - 扩展启用 sandbox；主应用不是沙盒应用。不含更新器。保留 MIT 许可与上游署名，独立演进，不自动合并上游。
 
 ## 7. 验证

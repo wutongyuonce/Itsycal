@@ -24,21 +24,13 @@ working development signing and a shared App Group; see
 
 ### Option 2 — Your own Apple Developer account
 
-Edit `Local.xcconfig` and set your 10-character team ID (found under
-Membership at developer.apple.com):
-
-```
-DEVELOPMENT_TEAM = XXXXXXXXXX
-CODE_SIGN_IDENTITY = Apple Development
-CODE_SIGN_STYLE = Automatic
-ENABLE_HARDENED_RUNTIME = YES
-WEEK_APP_GROUP = XXXXXXXXXX.com.wutongyuonce.Itsycal
-```
+Set your team, bundle ID and App Group in `Local.xcconfig` as described in
+[widget setup](docs/WEEK_WIDGET_SETUP.md#配置签名).
 
 ## Submitting a Pull Request
 
 Make sure your PR does not include changes to `DEVELOPMENT_TEAM`,
-`DevelopmentTeam`, or `ProvisioningStyle` in
+`DevelopmentTeam`, `ProvisioningStyle` or `PRODUCT_BUNDLE_IDENTIFIER` in
 `Itsycal.xcodeproj/project.pbxproj`. If you see those in your diff,
 revert them — they are the result of Xcode writing your local signing
 settings into the project file. Setting up `Local.xcconfig` as described

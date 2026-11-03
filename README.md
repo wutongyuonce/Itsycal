@@ -23,65 +23,20 @@
 
 ## 构建与安装
 
-首次复制本地签名配置：
-
 ```sh
-cp -n Local.xcconfig.example Local.xcconfig
-```
-
-在 Xcode 中登录开发账号，给 **Itsycal** 与 **WeekWidget** 选择同一团队、Apple Development 签名，并启用同一个 App Group，例如：
-
-```xcconfig
-WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.Itsycal
-```
-
-`Local.xcconfig` 已被 Git 忽略，不要提交证书、团队 ID 或 profile。
-
-构建并安装 Release 版本：
-
-```sh
+cp -n Local.xcconfig.example Local.xcconfig   # 填入自己的团队、Bundle ID 与 App Group
 bash Scripts/install-week.sh
 ```
 
-脚本会构建 Release、递增 build 号、等待旧主应用和小组件进程退出，以可恢复的原子替换安装到 `/Applications/Itsycal.app`，然后重新注册并刷新小组件服务。其他桌面小组件在安装时会短暂重载。
+仓库不含我们的证书或私钥，任何人都用自己的 Apple 身份构建。签名配置、安装脚本的行为与排查见 [构建、安装与排查](docs/WEEK_WIDGET_SETUP.md)。
 
 安装后：
 
 1. 打开 Itsycal，允许日历访问。
 2. 在设置 → Events 中选择要显示的日历。
 3. 桌面右键 → 编辑小组件 → 搜索“本周日程” → 添加中号或超大号。
-4. 若修改“一周从周几开始”，留在设置中即可，小组件会自动刷新为新排列。
 
-主应用退出后小组件仍显示已有快照，但新的日程修改要等主应用再次运行才同步。系统决定实际刷新时机，不保证秒级更新。
-
-## 其他用户如何自行构建
-
-仓库不附带我们的证书、私钥或 App Group。任何用户都可以用自己的 Apple 身份构建，不需要我们的签名：
-
-1. 克隆仓库，复制 `Local.xcconfig.example` 为 `Local.xcconfig`。
-2. 在 Xcode 中给 **Itsycal** 和 **WeekWidget** 选择自己的 Team/Apple Development 身份。
-3. 把两个 target 的 Bundle ID 改成自己的唯一名称，并设置同一 Team 前缀的 App Group，例如：
-   ```xcconfig
-   DEVELOPMENT_TEAM = 你的团队ID
-   CODE_SIGN_IDENTITY = Apple Development
-   WEEK_APP_GROUP = 你的团队ID.com.你的名字.Itsycal
-   ```
-4. 运行：
-   ```sh
-   bash Scripts/install-week.sh
-   ```
-   默认安装到 `/Applications/Itsycal.app`。若该位置已有其他 App，使用：
-   ```sh
-   INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
-   ```
-
-签名边界：
-
-- **可以用自己的签名**：自己的 Apple Development 或 Developer ID，不需要也不能使用我们的私钥。
-- **完全不用签名**：`CODE_SIGNING_ALLOWED=NO` 只能验证编译。原生小组件要求沙盒、App Group 和有效代码签名；未签名或 ad-hoc 构建在本机实测无法正常注册小组件。
-- **公开分发**：需要自己的 Developer ID Application 并 notarize；用户仍可手动下载安装。本项目已移除内置更新器，不提供 Sparkle 更新。
-
-首次安装后打开主应用，允许日历访问，在 Events 中选择日历，再从桌面图库添加“本周日程”。修改“一周从周几开始”后小组件会自动刷新。
+主应用退出后小组件仍显示已有快照，但新的日程修改要等主应用再次运行才同步。
 
 ## 版本号
 

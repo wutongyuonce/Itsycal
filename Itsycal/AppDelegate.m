@@ -19,6 +19,7 @@
 {
     NSWindowController *_wc;
     ViewController *_vc;
+    NSArray<NSURL *> *_pendingURLs; // URLs that arrive before _vc exists (launch by URL).
 }
 
 + (void)initialize
@@ -149,10 +150,19 @@
 {
     [_vc removeStatusItem];
     [[MASShortcutMonitor sharedMonitor] unregisterAllShortcuts];
+
+    if (_pendingURLs) {
+        [self application:NSApp openURLs:_pendingURLs];
+        _pendingURLs = nil;
+    }
 }
 
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls
 {
+    if (!_vc) {
+        _pendingURLs = urls;
+        return;
+    }
     if (urls.count >= 1) {
         // We can only handle showing one date at a time, so we pick the first one
         NSURL *url = urls[0];

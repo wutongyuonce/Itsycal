@@ -10,8 +10,10 @@ ENABLE_HARDENED_RUNTIME = NO
 // CODE_SIGN_IDENTITY = Apple Development
 // CODE_SIGN_STYLE = Automatic
 // ENABLE_HARDENED_RUNTIME = YES
-// WEEK_APP_GROUP = <your-team-id>.com.wutongyuonce.Itsycal
+// ITSYCAL_BUNDLE_ID = com.<your-name>.Itsycal   (the widget gets the .WeekWidget suffix)
+// WEEK_APP_GROUP = <your-team-id>.com.<your-name>.Itsycal
 //
+// Bundle IDs are unique per Apple account: other developers must choose their own.
 // macOS permits team-prefixed App Groups without registering a group on the
 // developer website. Both targets must use the same team and group. Xcode
 // manages signing; no personal certificate, profile or team ID belongs in Git.

@@ -979,6 +979,11 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [self.itsycalWindow orderOut:self];
     [_newEventPopover close];
     _inactiveTime = MonotonicClockTime();
+    // The one-day agenda from a widget tap lasts until the window closes.
+    if (_showWidgetDay) {
+        _showWidgetDay = NO;
+        [self updateAgenda];
+    }
 }
 
 - (void)cancel:(id)sender
