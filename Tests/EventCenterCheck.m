@@ -36,7 +36,7 @@
 @end
 
 @interface EventCenter (Check)
-- (void)_fetchEventsWithStartDate:(MoDate)start endDate:(MoDate)end refetch:(BOOL)refetch;
+- (BOOL)_fetchEventsWithStartDate:(MoDate)start endDate:(MoDate)end refetch:(BOOL)refetch;
 @end
 
 int main(void) {
@@ -83,6 +83,8 @@ int main(void) {
         // the last missing day (21st) must still be queried.
         [center _fetchEventsWithStartDate:MakeDate(2026, 9, 22) endDate:MakeDate(2026, 9, 30) refetch:NO];
         [center _fetchEventsWithStartDate:MakeDate(2026, 9, 19) endDate:MakeDate(2026, 9, 26) refetch:NO];
+        NSCAssert(![center _fetchEventsWithStartDate:MakeDate(2026, 9, 20) endDate:MakeDate(2026, 9, 26) refetch:NO],
+                  @"A fully cached range must not query or republish");
         NSDictionary *grouped = [center valueForKey:@"eventsForDate"];
         NSCAssert([grouped[date(20, 0)] count] == 1, @"Overnight event starts Tuesday");
         NSCAssert([grouped[date(21, 0)] count] == 2, @"Last missing day before a cached range must be fetched");

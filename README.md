@@ -40,7 +40,7 @@ bash Scripts/install-week.sh
 
 ## 版本号
 
-- `MARKETING_VERSION`（用户看到的版本）在 `Itsycal.xcodeproj/project.pbxproj` 的两个 target 中设置。
+- `MARKETING_VERSION`（用户看到的版本）和 `CURRENT_PROJECT_VERSION` 设在 `Itsycal.xcodeproj/project.pbxproj` 的工程级，主应用和 Widget 继承同一个值，保证版本一致；不要在 target 里单独改。
 - `CURRENT_PROJECT_VERSION` 是默认 build 号。
 - 主应用和 Widget 的 `Info.plist` 使用 `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`。
 - 本地安装脚本会用当前时间覆盖 build 号，避免 WidgetKit 继续使用旧版本的时间线归档。

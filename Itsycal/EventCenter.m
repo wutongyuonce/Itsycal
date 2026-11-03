@@ -163,8 +163,8 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     MoDate endMoDate   = [self.delegate fetchEndDate];
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
-            [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:NO];
-            [self _fetchSnapshotAndPublish];
+            BOOL fetched = [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:NO];
+            [self _fetchSnapshotAndPublish:fetched];
         }
     });
 }
@@ -180,7 +180,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
         @autoreleasepool {
             [self _fetchSourcesAndCalendars];
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:YES];
-            [self _fetchSnapshotAndPublish];
+            [self _fetchSnapshotAndPublish:YES];
         }
     });
 }
@@ -194,13 +194,18 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
 
 #pragma mark - Private (GCD thread pool)
 
-- (void)_fetchSnapshotAndPublish
+// Make sure the widget range (this month and next) is cached, then filter
+// and publish if anything changed. `changed` reports work done by the caller.
+- (void)_fetchSnapshotAndPublish:(BOOL)changed
 {
-    _weekStartDOW = MIN(MAX([[NSUserDefaults standardUserDefaults] integerForKey:kWeekStartDOW], 0), 6);
-    _snapshotInterval = WeekSnapshotInterval(NSDate.date, _weekStartDOW);
-    [self _fetchEventsWithStartDate:MakeDateWithNSDate(_snapshotInterval.startDate, _cal)
-                          endDate:MakeDateWithNSDate(_snapshotInterval.endDate, _cal) refetch:NO];
-    [self _filterEvents];
+    NSInteger weekStartDOW = MIN(MAX([[NSUserDefaults standardUserDefaults] integerForKey:kWeekStartDOW], 0), 6);
+    NSDateInterval *interval = WeekSnapshotInterval(NSDate.date, weekStartDOW);
+    changed = changed || weekStartDOW != _weekStartDOW || ![interval isEqualToDateInterval:_snapshotInterval];
+    _weekStartDOW = weekStartDOW;
+    _snapshotInterval = interval;
+    BOOL fetched = [self _fetchEventsWithStartDate:MakeDateWithNSDate(interval.startDate, _cal)
+                                           endDate:MakeDateWithNSDate(interval.endDate, _cal) refetch:NO];
+    if (changed || fetched) [self _filterEvents];
 }
 
 - (void)_fetchSourcesAndCalendars {
@@ -265,7 +270,8 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     return calendars;
 }
 
-- (void)_fetchEventsWithStartDate:(MoDate)startMoDate endDate:(MoDate)endMoDate refetch:(BOOL)refetch
+// Returns NO when the whole range was already cached and nothing was queried.
+- (BOOL)_fetchEventsWithStartDate:(MoDate)startMoDate endDate:(MoDate)endMoDate refetch:(BOOL)refetch
 {
     //os_log(OS_LOG_DEFAULT, " %s", __FUNCTION__);
     if (refetch) {
@@ -276,7 +282,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     NSRange dateRange = NSMakeRange(startMoDate.julian, endMoDate.julian - startMoDate.julian);
     if ([_previouslyFetchedDates containsIndexesInRange:dateRange])  {
         //os_log(OS_LOG_DEFAULT, "SKIPPING: %@ - %@", NSStringFromMoDate(startMoDate), NSStringFromMoDate(endMoDate));
-        return;
+        return NO;
     }
     
     // Query the full half-open interval when any date is missing. Keeping
@@ -385,6 +391,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
         if ([eventsForDate[day] count]) _eventsForDate[day] = eventsForDate[day];
         else [_eventsForDate removeObjectForKey:day];
     }
+    return YES;
 }
 
 - (void)_filterEvents {

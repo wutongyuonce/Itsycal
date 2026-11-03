@@ -167,8 +167,15 @@ enum WeekDates {
         URL(string: "itsycal-week://date/\(key(date, calendar: calendar))?widget=1")!
     }
 
+    /// Abbreviated weekday in the user's preferred language ("周一", "Mon").
+    /// The extension itself is not localized, so Locale.current would be English.
     static func weekdayLabel(_ date: Date, calendar: Calendar) -> String {
-        ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][calendar.component(.weekday, from: date) - 1]
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: Locale.preferredLanguages.first ?? "en")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEE")
+        return formatter.string(from: date)
     }
 
     static func eventPitch(compact: Bool) -> Double { compact ? 25 : 36 }
