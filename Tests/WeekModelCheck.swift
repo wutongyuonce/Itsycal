@@ -68,6 +68,9 @@ struct WeekModelCheck {
         assert(february.count == 4, "Feb 2027 starts on Monday: exactly four rows")
         let sundayFirst = MonthDates.grid(containing: instant("2026-11-15T12:00:00-08:00"), weekStart: 0, calendar: calendar)
         assert(WeekDates.key(sundayFirst[0][0], calendar: calendar) == "2026-11-01" && sundayFirst.count == 5)
+        // Extra large: ~267 pt of grid gives 4 / 3 / 2 event rows for 4 / 5 / 6-week months.
+        assert([4, 5, 6].map { MonthLayout.eventRows(cellHeight: 267.0 / Double($0)) } == [4, 3, 2])
+        assert(MonthLayout.eventRows(cellHeight: 10) == 0)
 
         // Next-period view: one period ahead, expires, and is a timeline boundary.
         let navigation = PeriodNavigation.next(.week, from: sunday, calendar: calendar)

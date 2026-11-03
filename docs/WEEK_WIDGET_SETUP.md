@@ -56,7 +56,7 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
   | tail -60
 ```
 
-- 正常时 `ItsycalWeek` 和 `ItsycalMonth` 的 timeline 各返回 15 条（处于下周/下月视图时 16 条）。
+- 正常时 `ItsycalWeek` 和 `ItsycalMonth` 各自 `reload: succeeded`，条目数见[规格第 4 节](WEEK_WIDGET_SPEC.md#4-数据状态与刷新)。
 - `Bundle version did not match` 或 `Unknown extension process`：旧扩展进程或旧注册仍在。重新运行安装脚本；若仍不行，退出并重开 Itsycal，然后关闭并重开小组件图库。
 - `plug-ins must be sandboxed`：构建后又做过临时 ad-hoc 深签，丢失了扩展的 sandbox entitlement。请用完整 Xcode 签名构建。
 - 共享组被拒绝：检查两端 entitlement、团队身份和实际的 `WeekAppGroup` 值。
@@ -85,9 +85,9 @@ swiftc WeekWidget/WeekModel.swift WeekWidget/WeekPreview.swift WeekWidget/Widget
 ## 真机验收
 
 - 七列按设置的一周起始日排列；修改设置后自动刷新。过去的日期整列弱化，今天强调显示。
-- 周视图两种尺寸都有顶栏；中号每天最多三项，超大号最多四项。
-- 月视图显示整月（含前后月补齐的日期），每格事件放不下时显示“+N”；点任一格打开当天。
-- 点 `›` 切到下周/下月、点 `‹` 回来，不打开主应用；15 分钟后自动回来；同一小组件的多个实例同步切换，周和月互不影响。
+- 周视图两种尺寸的顶栏和每日条数符合规格。
+- 月视图显示整月（含前后补齐的日期），放不下时显示剩余数量；点任一格打开当天。
+- 点 `›` 切到下周/下月、点 `‹` 回来，不打开主应用；到期后自动回来；同一小组件的多个实例同步切换，周和月互不影响。
 - 主应用翻到其他月份后，小组件仍显示本周。
 - 修改日历事件或已选日历后，等系统刷新即同步；主应用需要保持运行。
 - 点击日期和溢出入口打开完整当天，包括 Itsycal 未运行时的冷启动；议程隐藏偏好不妨碍这个入口。

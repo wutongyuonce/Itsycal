@@ -10,8 +10,8 @@ extension WeekSnapshot {
         let grid = WidgetPeriod.month.days(containing: date, weekStart: weekStart, calendar: calendar)
             + WidgetPeriod.month.days(containing: WidgetPeriod.month.next(after: date, calendar: calendar),
                                       weekStart: weekStart, calendar: calendar)
-        let first = min(grid[0], thisWeek)
-        let last = max(grid.last!, calendar.date(byAdding: .day, value: 13, to: thisWeek)!)
+        // The two month grids always contain this week and next week as well.
+        let first = grid[0], last = grid.last!
         // The first two weeks are hand-written for the week widget; the rest cycles.
         let weeks = [["项目复盘", "整理本周计划"], ["设计讨论"], ["团队例会", "产品评审"],
                      ["专注工作", "与客户沟通", "设计走查", "方案评审", "整理反馈", "阅读"], ["周度回顾"], [], ["下周计划"],

@@ -203,3 +203,16 @@ enum MonthDates {
         return weeks
     }
 }
+
+/// Month cell geometry shared by MonthView and its capacity rule.
+enum MonthLayout {
+    static let topInset: Double = 2
+    static let numberHeight: Double = 17
+    static let numberGap: Double = 1
+    static let chipHeight: Double = 11
+
+    /// Event chips that fit under the date in a cell of the given height.
+    static func eventRows(cellHeight: Double) -> Int {
+        max(0, Int((cellHeight - topInset - numberHeight - numberGap) / chipHeight))
+    }
+}
