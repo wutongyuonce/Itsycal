@@ -24,8 +24,34 @@ struct WeekEvent: Codable {
 }
 
 enum WeekShared {
-    static let kind = "ItsycalWeek" // Must match WeekWidgetReloader in the main app.
     static var group: String? { Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String }
+}
+
+/// The span a widget shows: the week widget or the month widget.
+enum WidgetPeriod: String, CaseIterable, Sendable { // AppEnum conformance: WeekIntent.swift
+    case week, month
+
+    var kind: String { self == .week ? "ItsycalWeek" : "ItsycalMonth" }
+
+    /// Every day the widget draws for the period containing `date`.
+    func days(containing date: Date, weekStart: Int, calendar: Calendar) -> [Date] {
+        switch self {
+        case .week: WeekDates.days(containing: date, weekStart: weekStart, calendar: calendar)
+        case .month: MonthDates.grid(containing: date, weekStart: weekStart, calendar: calendar).flatMap { $0 }
+        }
+    }
+
+    func next(after date: Date, calendar: Calendar) -> Date {
+        calendar.date(byAdding: self == .week ? .weekOfYear : .month, value: 1, to: date)!
+    }
+
+    func isSame(_ date: Date, as other: Date, weekStart: Int, calendar: Calendar) -> Bool {
+        switch self {
+        case .week: WeekDates.weekStartDate(containing: date, weekStart: weekStart, calendar: calendar)
+            == WeekDates.weekStartDate(containing: other, weekStart: weekStart, calendar: calendar)
+        case .month: calendar.isDate(date, equalTo: other, toGranularity: .month)
+        }
+    }
 }
 
 struct WeekSnapshot: Codable {
@@ -47,63 +73,63 @@ struct WeekSnapshot: Codable {
         return snapshot
     }
 
-    /// Why the week containing `shown` cannot be displayed, or nil when it can.
-    func message(for shown: Date, calendar: Calendar) -> String? {
+    /// Why the period containing `shown` cannot be displayed, or nil when it can.
+    func message(for period: WidgetPeriod, containing shown: Date, calendar: Calendar) -> String? {
         if status == "permission" { return "打开 Itsycal，允许访问日历" }
         if status == "calendars" { return "在 Itsycal 中选择要显示的日历" }
         guard status == "ready" else { return "打开 Itsycal 更新日程" }
         guard (0...6).contains(weekStart) else { return "打开 Itsycal 更新日程" }
         if timeZone != calendar.timeZone.identifier { return "时区已改变，打开 Itsycal 更新日程" }
-        let first = WeekDates.weekStartDate(containing: shown, weekStart: weekStart, calendar: calendar)
-        let next = calendar.date(byAdding: .day, value: 7, to: first)!
-        if first.timeIntervalSince1970 < start || next.timeIntervalSince1970 > end {
-            return "打开 Itsycal 获取这一周的日程"
+        let shownDays = period.days(containing: shown, weekStart: weekStart, calendar: calendar)
+        let after = calendar.date(byAdding: .day, value: 1, to: shownDays.last!)!
+        if shownDays[0].timeIntervalSince1970 < start || after.timeIntervalSince1970 > end {
+            return period == .week ? "打开 Itsycal 获取这一周的日程" : "打开 Itsycal 获取这个月的日程"
         }
         // Missing buckets mean incomplete data, never an empty calendar.
-        if WeekDates.days(containing: shown, weekStart: weekStart, calendar: calendar)
-            .contains(where: { days[WeekDates.key($0, calendar: calendar)] == nil }) {
+        if shownDays.contains(where: { days[WeekDates.key($0, calendar: calendar)] == nil }) {
             return "打开 Itsycal 更新日程"
         }
         return nil
     }
 }
 
-/// Next-week view chosen in the widget. Shared by every widget instance and
-/// expires, so the widget always falls back to the current week.
-struct WeekNavigation {
+/// Next-week or next-month view chosen in a widget. Each period has its own
+/// state, shared by that widget's instances, and expires back to the current one.
+struct PeriodNavigation {
     static let idle: TimeInterval = 15 * 60
 
-    let week: Date   // An instant inside the shown week.
+    let target: Date // An instant inside the shown period.
     let until: Date
 
-    func shown(at date: Date) -> Date { date < until ? week : date }
+    func shown(at date: Date) -> Date { date < until ? target : date }
 
-    static func nextWeek(from now: Date, calendar: Calendar) -> WeekNavigation {
-        WeekNavigation(week: calendar.date(byAdding: .day, value: 7, to: now)!,
-                       until: now.addingTimeInterval(idle))
+    static func next(_ period: WidgetPeriod, from now: Date, calendar: Calendar) -> PeriodNavigation {
+        PeriodNavigation(target: period.next(after: now, calendar: calendar), until: now.addingTimeInterval(idle))
     }
 
-    /// Next week is offered only when the snapshot can display all of it.
-    static func canShowNextWeek(_ snapshot: WeekSnapshot?, today: Date, calendar: Calendar) -> Bool {
+    /// The next period is offered only when the snapshot can display all of it.
+    static func canShowNext(_ period: WidgetPeriod, snapshot: WeekSnapshot?, today: Date, calendar: Calendar) -> Bool {
         guard let snapshot else { return false }
-        return snapshot.message(for: calendar.date(byAdding: .day, value: 7, to: today)!, calendar: calendar) == nil
+        return snapshot.message(for: period, containing: period.next(after: today, calendar: calendar),
+                                calendar: calendar) == nil
     }
 
-    // One key, [week, until], so readers never see half of an update.
-    private static let key = "navigation"
+    // One key per period holding [target, until], so readers never see half an update.
+    private static func key(_ period: WidgetPeriod) -> String { "navigation.\(period.rawValue)" }
     private static var defaults: UserDefaults? { WeekShared.group.flatMap(UserDefaults.init(suiteName:)) }
 
-    static func load() -> WeekNavigation? {
-        guard let value = defaults?.array(forKey: key) as? [TimeInterval], value.count == 2 else { return nil }
-        return WeekNavigation(week: Date(timeIntervalSince1970: value[0]), until: Date(timeIntervalSince1970: value[1]))
+    static func load(_ period: WidgetPeriod) -> PeriodNavigation? {
+        guard let value = defaults?.array(forKey: key(period)) as? [TimeInterval], value.count == 2 else { return nil }
+        return PeriodNavigation(target: Date(timeIntervalSince1970: value[0]), until: Date(timeIntervalSince1970: value[1]))
     }
 
-    /// nil returns to the current week.
-    static func store(_ navigation: WeekNavigation?) {
+    /// nil returns to the current period.
+    static func store(_ navigation: PeriodNavigation?, for period: WidgetPeriod) {
         if let navigation {
-            defaults?.set([navigation.week.timeIntervalSince1970, navigation.until.timeIntervalSince1970], forKey: key)
+            defaults?.set([navigation.target.timeIntervalSince1970, navigation.until.timeIntervalSince1970],
+                          forKey: key(period))
         } else {
-            defaults?.removeObject(forKey: key)
+            defaults?.removeObject(forKey: key(period))
         }
     }
 }
@@ -127,11 +153,6 @@ enum WeekDates {
         return (0..<7).map { calendar.date(byAdding: .day, value: $0, to: first)! }
     }
 
-    static func isNextWeek(_ shown: Date, today: Date, weekStart: Int, calendar: Calendar) -> Bool {
-        let thisWeek = weekStartDate(containing: today, weekStart: weekStart, calendar: calendar)
-        return calendar.isDate(weekStartDate(containing: shown, weekStart: weekStart, calendar: calendar),
-                               inSameDayAs: calendar.date(byAdding: .day, value: 7, to: thisWeek)!)
-    }
 
     static func key(_ date: Date, calendar: Calendar) -> String {
         let formatter = DateFormatter()
@@ -160,11 +181,25 @@ enum WeekDates {
     }
 
     /// Now, each of the next 14 local midnights and, if later than now, the
-    /// moment the next-week view expires.
-    static func timelineDates(from date: Date, calendar: Calendar, navigation: WeekNavigation? = nil) -> [Date] {
+    /// moment the next-period view expires.
+    static func timelineDates(from date: Date, calendar: Calendar, navigation: PeriodNavigation? = nil) -> [Date] {
         let midnight = calendar.startOfDay(for: date)
         var dates = [date] + (1...14).map { calendar.date(byAdding: .day, value: $0, to: midnight)! }
         if let until = navigation?.until, until > date { dates.append(until) }
         return dates.sorted()
+    }
+}
+
+enum MonthDates {
+    /// Whole weeks covering the month that contains `date` (4–6 rows).
+    static func grid(containing date: Date, weekStart: Int, calendar: Calendar) -> [[Date]] {
+        let month = calendar.dateInterval(of: .month, for: date)!
+        var day = WeekDates.weekStartDate(containing: month.start, weekStart: weekStart, calendar: calendar)
+        var weeks: [[Date]] = []
+        while day < month.end {
+            weeks.append((0..<7).map { calendar.date(byAdding: .day, value: $0, to: day)! })
+            day = calendar.date(byAdding: .day, value: 7, to: day)!
+        }
+        return weeks
     }
 }

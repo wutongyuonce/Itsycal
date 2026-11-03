@@ -37,7 +37,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     dispatch_queue_t      _queueWork;
     dispatch_queue_t      _queueIsol;
     dispatch_queue_t      _queueIsol2;
-    NSDateInterval       *_weekInterval;            // _queueWork
+    NSDateInterval       *_snapshotInterval;        // _queueWork
     NSInteger             _weekStartDOW;            // _queueWork
 }
 
@@ -164,7 +164,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:NO];
-            [self _fetchWeekAndPublish];
+            [self _fetchSnapshotAndPublish];
         }
     });
 }
@@ -180,7 +180,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
         @autoreleasepool {
             [self _fetchSourcesAndCalendars];
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:YES];
-            [self _fetchWeekAndPublish];
+            [self _fetchSnapshotAndPublish];
         }
     });
 }
@@ -194,12 +194,12 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
 
 #pragma mark - Private (GCD thread pool)
 
-- (void)_fetchWeekAndPublish
+- (void)_fetchSnapshotAndPublish
 {
     _weekStartDOW = MIN(MAX([[NSUserDefaults standardUserDefaults] integerForKey:kWeekStartDOW], 0), 6);
-    _weekInterval = WeekSnapshotInterval(NSDate.date, _weekStartDOW);
-    [self _fetchEventsWithStartDate:MakeDateWithNSDate(_weekInterval.startDate, _cal)
-                          endDate:MakeDateWithNSDate(_weekInterval.endDate, _cal) refetch:NO];
+    _snapshotInterval = WeekSnapshotInterval(NSDate.date, _weekStartDOW);
+    [self _fetchEventsWithStartDate:MakeDateWithNSDate(_snapshotInterval.startDate, _cal)
+                          endDate:MakeDateWithNSDate(_snapshotInterval.endDate, _cal) refetch:NO];
     [self _filterEvents];
 }
 
@@ -412,7 +412,7 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
             }
         }
     }
-    if (_weekInterval) PublishWeekSnapshot(filteredEventsForDate, self, _weekInterval, _weekStartDOW);
+    if (_snapshotInterval) PublishWeekSnapshot(filteredEventsForDate, self, _snapshotInterval, _weekStartDOW);
     // Notify the delegate from inside the _queueIsol block so the
     // write to _filteredEventsForDate is visible before the delegate
     // reads it back via -filteredEventsForDate.

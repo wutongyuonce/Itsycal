@@ -47,38 +47,64 @@ struct WeekModelCheck {
         let buckets = Dictionary(uniqueKeysWithValues: days.map { (WeekDates.key($0, calendar: calendar), [WeekEvent]()) })
         let good = WeekSnapshot(version: 2, generatedAt: sunday.timeIntervalSince1970, timeZone: calendar.timeZone.identifier,
                                 start: monday.timeIntervalSince1970, end: coverageEnd.timeIntervalSince1970, status: "ready", weekStart: 1, days: buckets)
-        assert(good.message(for: sunday, calendar: calendar) == nil)
+        func weekIssue(_ snapshot: WeekSnapshot, _ date: Date, _ cal: Calendar = calendar) -> String? {
+            snapshot.message(for: .week, containing: date, calendar: cal)
+        }
+        assert(weekIssue(good, sunday) == nil)
         let nextSunday = calendar.date(byAdding: .day, value: 7, to: sunday)!
-        assert(good.message(for: nextSunday, calendar: calendar) != nil, "Missing buckets must not become an empty week")
+        assert(weekIssue(good, nextSunday) != nil, "Missing buckets must not become an empty week")
         let later = calendar.date(byAdding: .day, value: 14, to: sunday)!
-        assert(good.message(for: later, calendar: calendar) != nil, "Missing data must not become an empty week")
+        assert(weekIssue(good, later) != nil, "Missing data must not become an empty week")
         var otherZone = calendar
         otherZone.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        assert(good.message(for: sunday, calendar: otherZone) != nil)
+        assert(weekIssue(good, sunday, otherZone) != nil)
 
-        // Next-week view: one week ahead, expires, and is a timeline boundary.
-        let navigation = WeekNavigation.nextWeek(from: sunday, calendar: calendar)
-        assert(WeekDates.isNextWeek(navigation.shown(at: sunday), today: sunday, weekStart: 1, calendar: calendar))
-        assert(!WeekDates.isNextWeek(sunday, today: sunday, weekStart: 1, calendar: calendar))
-        assert(navigation.shown(at: navigation.until) == navigation.until, "Expired navigation returns to the current week")
+        // Month grids: whole weeks, starting on the configured weekday.
+        let november = MonthDates.grid(containing: instant("2026-11-15T12:00:00-08:00"), weekStart: 1, calendar: calendar)
+        assert(november.count == 6 && november.allSatisfy { $0.count == 7 })
+        assert(WeekDates.key(november[0][0], calendar: calendar) == "2026-10-26")
+        assert(WeekDates.key(november[5][6], calendar: calendar) == "2026-12-06")
+        let february = MonthDates.grid(containing: instant("2027-02-10T12:00:00-08:00"), weekStart: 1, calendar: calendar)
+        assert(february.count == 4, "Feb 2027 starts on Monday: exactly four rows")
+        let sundayFirst = MonthDates.grid(containing: instant("2026-11-15T12:00:00-08:00"), weekStart: 0, calendar: calendar)
+        assert(WeekDates.key(sundayFirst[0][0], calendar: calendar) == "2026-11-01" && sundayFirst.count == 5)
+
+        // Next-period view: one period ahead, expires, and is a timeline boundary.
+        let navigation = PeriodNavigation.next(.week, from: sunday, calendar: calendar)
+        assert(!WidgetPeriod.week.isSame(navigation.shown(at: sunday), as: sunday, weekStart: 1, calendar: calendar))
+        assert(WidgetPeriod.week.isSame(nextSunday, as: navigation.shown(at: sunday), weekStart: 1, calendar: calendar))
+        assert(navigation.shown(at: navigation.until) == navigation.until, "Expired navigation returns to the current period")
         let navigated = WeekDates.timelineDates(from: sunday, calendar: calendar, navigation: navigation)
         assert(navigated.count == 16 && navigated.contains(navigation.until) && navigated == navigated.sorted())
         assert(WeekDates.timelineDates(from: navigation.until, calendar: calendar, navigation: navigation).count == 15)
         // A click just before the week starts keeps that absolute week, which then is the current week.
         let lateSunday = instant("2026-10-25T23:55:00-07:00")
         let earlyMonday = instant("2026-10-26T00:05:00-07:00")
-        let late = WeekDates.days(containing: WeekNavigation.nextWeek(from: lateSunday, calendar: calendar).shown(at: earlyMonday),
-                                  weekStart: 1, calendar: calendar)
-        assert(late == WeekDates.days(containing: earlyMonday, weekStart: 1, calendar: calendar))
+        let late = PeriodNavigation.next(.week, from: lateSunday, calendar: calendar).shown(at: earlyMonday)
+        assert(WidgetPeriod.week.isSame(late, as: earlyMonday, weekStart: 1, calendar: calendar))
+        // Next month from Jan 31 is February, not March.
+        let january31 = instant("2027-01-31T12:00:00-08:00")
+        assert(calendar.component(.month, from: PeriodNavigation.next(.month, from: january31, calendar: calendar).target) == 2)
 
-        // › is offered only when every next-week bucket is present and the snapshot is ready.
-        assert(!WeekNavigation.canShowNextWeek(nil, today: sunday, calendar: calendar))
-        assert(!WeekNavigation.canShowNextWeek(good, today: sunday, calendar: calendar))
+        // › is offered only when every bucket of the next period is present and the snapshot is ready.
+        assert(!PeriodNavigation.canShowNext(.week, snapshot: nil, today: sunday, calendar: calendar))
+        assert(!PeriodNavigation.canShowNext(.week, snapshot: good, today: sunday, calendar: calendar))
+        assert(!PeriodNavigation.canShowNext(.month, snapshot: good, today: sunday, calendar: calendar))
         let full = WeekSnapshot.preview(at: sunday, calendar: calendar)
-        assert(WeekNavigation.canShowNextWeek(full, today: sunday, calendar: calendar))
+        assert(PeriodNavigation.canShowNext(.week, snapshot: full, today: sunday, calendar: calendar))
+        assert(PeriodNavigation.canShowNext(.month, snapshot: full, today: sunday, calendar: calendar))
+        assert(full.message(for: .month, containing: sunday, calendar: calendar) == nil)
         let denied = WeekSnapshot(version: 2, generatedAt: full.generatedAt, timeZone: full.timeZone, start: full.start,
                                   end: full.end, status: "permission", weekStart: 1, days: full.days)
-        assert(!WeekNavigation.canShowNextWeek(denied, today: sunday, calendar: calendar))
+        assert(!PeriodNavigation.canShowNext(.week, snapshot: denied, today: sunday, calendar: calendar))
+        // The month view needs the trailing days of next month's grid, not just the month itself.
+        var trimmed = full.days
+        let nextMonthDays = WidgetPeriod.month.days(containing: WidgetPeriod.month.next(after: sunday, calendar: calendar),
+                                                    weekStart: 1, calendar: calendar)
+        trimmed[WeekDates.key(nextMonthDays.last!, calendar: calendar)] = nil
+        let gap = WeekSnapshot(version: 2, generatedAt: full.generatedAt, timeZone: full.timeZone, start: full.start,
+                               end: full.end, status: "ready", weekStart: 1, days: trimmed)
+        assert(!PeriodNavigation.canShowNext(.month, snapshot: gap, today: sunday, calendar: calendar))
 
         // Field names and types written by Itsycal/WeekSnapshot.m.
         let written = """
@@ -88,6 +114,6 @@ struct WeekModelCheck {
         """
         let decoded = try JSONDecoder().decode(WeekSnapshot.self, from: Data(written.utf8))
         assert(decoded.days["2026-10-19"]?.first?.title == "T")
-        print("WeekModel checks passed: week start, year boundary, DST, capacity, links, coverage, timezone, next-week view and snapshot format")
+        print("WeekModel checks passed: week start, year boundary, DST, capacity, links, coverage, timezone, month grid, next-period view and snapshot format")
     }
 }

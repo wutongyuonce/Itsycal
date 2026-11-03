@@ -4,15 +4,24 @@
 #import <os/log.h>
 #import "Itsycal-Swift.h"
 
+static NSDate *WeekStartContaining(NSDate *date, NSInteger weekStartDOW, NSCalendar *calendar)
+{
+    NSDate *day = [calendar startOfDayForDate:date];
+    NSInteger weekday = [calendar component:NSCalendarUnitWeekday fromDate:day] - 1;
+    return [calendar dateByAddingUnit:NSCalendarUnitDay value:-((weekday - weekStartDOW + 7) % 7) toDate:day options:0];
+}
+
 NSDateInterval *WeekSnapshotInterval(NSDate *date, NSInteger weekStartDOW)
 {
     NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
     calendar.timeZone = NSTimeZone.localTimeZone;
-    NSDate *today = [calendar startOfDayForDate:date];
-    NSInteger weekday = [calendar component:NSCalendarUnitWeekday fromDate:today] - 1;
-    NSInteger offset = (weekday - weekStartDOW + 7) % 7;
-    NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-offset toDate:today options:0];
-    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:14 toDate:start options:0];
+    NSDate *monthStart;
+    [calendar rangeOfUnit:NSCalendarUnitMonth startDate:&monthStart interval:NULL forDate:date];
+    NSDate *afterNext = [calendar dateByAddingUnit:NSCalendarUnitMonth value:2 toDate:monthStart options:0];
+    NSDate *lastDay = [calendar dateByAddingUnit:NSCalendarUnitDay value:-1 toDate:afterNext options:0];
+    NSDate *start = WeekStartContaining(monthStart, weekStartDOW, calendar);
+    NSDate *end = [calendar dateByAddingUnit:NSCalendarUnitDay value:7
+                                      toDate:WeekStartContaining(lastDay, weekStartDOW, calendar) options:0];
     return [[NSDateInterval alloc] initWithStartDate:start endDate:end];
 }
 

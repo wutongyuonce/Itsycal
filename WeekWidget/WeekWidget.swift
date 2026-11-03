@@ -1,35 +1,38 @@
 import SwiftUI
 import WidgetKit
 
-struct WeekEntry: TimelineEntry {
+struct PeriodEntry: TimelineEntry {
     let date: Date
-    let shown: Date // A date inside the displayed week.
+    let shown: Date // A date inside the displayed week or month.
     let snapshot: WeekSnapshot?
 }
 
-struct WeekProvider: TimelineProvider {
-    func placeholder(in context: Context) -> WeekEntry {
-        WeekEntry(date: .now, shown: .now, snapshot: .preview(at: .now))
+/// One provider for both widgets; they differ only in which navigation state they read.
+struct PeriodProvider: TimelineProvider {
+    let period: WidgetPeriod
+
+    func placeholder(in context: Context) -> PeriodEntry {
+        PeriodEntry(date: .now, shown: .now, snapshot: .preview(at: .now))
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (WeekEntry) -> Void) {
+    func getSnapshot(in context: Context, completion: @escaping (PeriodEntry) -> Void) {
         let now = Date()
-        if context.isPreview { return completion(WeekEntry(date: now, shown: now, snapshot: .preview(at: now))) }
-        completion(WeekEntry(date: now, shown: WeekNavigation.load()?.shown(at: now) ?? now, snapshot: .load()))
+        if context.isPreview { return completion(PeriodEntry(date: now, shown: now, snapshot: .preview(at: now))) }
+        completion(PeriodEntry(date: now, shown: PeriodNavigation.load(period)?.shown(at: now) ?? now, snapshot: .load()))
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<WeekEntry>) -> Void) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<PeriodEntry>) -> Void) {
         let now = Date()
         let snapshot = WeekSnapshot.load()
-        let navigation = WeekNavigation.load()
+        let navigation = PeriodNavigation.load(period)
         let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation)
-            .map { WeekEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
+            .map { PeriodEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
         completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(3600))))
     }
 }
 
 private struct WeekWidgetContent: View {
-    let entry: WeekEntry
+    let entry: PeriodEntry
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
@@ -37,10 +40,9 @@ private struct WeekWidgetContent: View {
     }
 }
 
-@main
 struct ItsycalWeekWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: WeekShared.kind, provider: WeekProvider()) { entry in
+        StaticConfiguration(kind: WidgetPeriod.week.kind, provider: PeriodProvider(period: .week)) { entry in
             WeekWidgetContent(entry: entry)
                 .privacySensitive()
                 .containerBackground(.background, for: .widget)
@@ -49,5 +51,27 @@ struct ItsycalWeekWidget: Widget {
         .description("按设置的一周起始日，一眼查看每天的安排，可切换到下周。")
         .supportedFamilies([.systemMedium, .systemExtraLarge])
         .contentMarginsDisabled()
+    }
+}
+
+struct ItsycalMonthWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: WidgetPeriod.month.kind, provider: PeriodProvider(period: .month)) { entry in
+            MonthView(date: entry.date, shown: entry.shown, snapshot: entry.snapshot)
+                .privacySensitive()
+                .containerBackground(.background, for: .widget)
+        }
+        .configurationDisplayName("本月日程")
+        .description("整月日历与每天的安排，可切换到下月。")
+        .supportedFamilies([.systemExtraLarge])
+        .contentMarginsDisabled()
+    }
+}
+
+@main
+struct ItsycalWidgets: WidgetBundle {
+    var body: some Widget {
+        ItsycalWeekWidget()
+        ItsycalMonthWidget()
     }
 }

@@ -43,14 +43,17 @@ int main(void) {
     @autoreleasepool {
         NSCalendar *cal = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
         cal.timeZone = [NSTimeZone timeZoneWithName:@"Asia/Shanghai"];
+        // October 2026 starts on a Thursday; November ends on a Monday.
         NSDate *thursday = [cal dateWithEra:1 year:2026 month:10 day:22 hour:12 minute:0 second:0 nanosecond:0];
-        NSDate *start = [cal dateWithEra:1 year:2026 month:10 day:21 hour:0 minute:0 second:0 nanosecond:0];
-        NSDate *end = [cal dateByAddingUnit:NSCalendarUnitDay value:14 toDate:start options:0];
-        NSDateInterval *wednesdayWeek = WeekSnapshotInterval(thursday, 3);
-        NSCAssert([wednesdayWeek.startDate isEqualToDate:start], @"Wednesday start must begin on Wednesday");
-        NSCAssert([wednesdayWeek.endDate isEqualToDate:end], @"Snapshot must cover two full weeks");
-        NSDate *sunday = [cal dateWithEra:1 year:2026 month:10 day:18 hour:0 minute:0 second:0 nanosecond:0];
-        NSCAssert([WeekSnapshotInterval(thursday, 0).startDate isEqualToDate:sunday], @"Sunday start must follow the app preference");
+        NSDate *(^dayStart)(NSInteger, NSInteger) = ^NSDate *(NSInteger month, NSInteger day) {
+            return [cal dateWithEra:1 year:2026 month:month day:day hour:0 minute:0 second:0 nanosecond:0];
+        };
+        NSDateInterval *wednesday = WeekSnapshotInterval(thursday, 3);
+        NSCAssert([wednesday.startDate isEqualToDate:dayStart(9, 30)], @"Grid starts on the Wednesday on or before Oct 1");
+        NSCAssert([wednesday.endDate isEqualToDate:dayStart(12, 2)], @"Grid ends after the week containing Nov 30");
+        NSDateInterval *sunday = WeekSnapshotInterval(thursday, 0);
+        NSCAssert([sunday.startDate isEqualToDate:dayStart(9, 27)], @"Sunday start must follow the app preference");
+        NSCAssert([sunday.endDate isEqualToDate:dayStart(12, 6)], @"Sunday grid ends after the week containing Nov 30");
 
         NSDate *(^date)(NSInteger, NSInteger) = ^NSDate *(NSInteger day, NSInteger hour) {
             return [cal dateWithEra:1 year:2026 month:10 day:day hour:hour minute:0 second:0 nanosecond:0];
@@ -86,6 +89,6 @@ int main(void) {
         NSCAssert(grouped[date(22, 0)] == nil, @"Midnight end must not occupy Thursday");
         NSCAssert([grouped[date(23, 0)] count] == 1, @"Zero-duration midnight event must be retained");
         NSCAssert([grouped[date(25, 0)] count] == 1, @"Re-queried cached days are replaced, not duplicated");
-        puts("EventCenter checks passed: week interval, partial-cache range, cross-midnight and zero-duration grouping");
+        puts("EventCenter checks passed: snapshot interval, partial-cache range, cross-midnight and zero-duration grouping");
     }
 }

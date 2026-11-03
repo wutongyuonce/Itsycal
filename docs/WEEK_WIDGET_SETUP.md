@@ -44,7 +44,7 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
 - 交换后签名验证失败会删除新版并恢复旧版；任何失败后都会重新打开保留下来的 App。
 - 整个过程忽略 INT/TERM/HUP，不会停在半途。它不是断电安全的事务安装器：若被 SIGKILL，脚本不删除任何残留，旧版留在安装位置同目录的 `.itsycal-week-install.*` 或 `.itsycal-week-backup.*` 中，失败信息会列出路径。
 
-首次使用：打开 Itsycal 允许日历访问，在设置 → Events 中选择日历，再在桌面右键 → 编辑小组件中搜索“本周日程”，添加中号或超大号。
+首次使用：打开 Itsycal 允许日历访问，在设置 → Events 中选择日历，再在桌面右键 → 编辑小组件中搜索 Itsycal，添加“本周日程”或“本月日程”。
 
 ## 小组件灰色占位或不刷新
 
@@ -56,7 +56,7 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
   | tail -60
 ```
 
-- 正常时扩展的 timeline 返回 15 条（处于下周视图时 16 条）。
+- 正常时 `ItsycalWeek` 和 `ItsycalMonth` 的 timeline 各返回 15 条（处于下周/下月视图时 16 条）。
 - `Bundle version did not match` 或 `Unknown extension process`：旧扩展进程或旧注册仍在。重新运行安装脚本；若仍不行，退出并重开 Itsycal，然后关闭并重开小组件图库。
 - `plug-ins must be sandboxed`：构建后又做过临时 ad-hoc 深签，丢失了扩展的 sandbox entitlement。请用完整 Xcode 签名构建。
 - 共享组被拒绝：检查两端 entitlement、团队身份和实际的 `WeekAppGroup` 值。
@@ -76,16 +76,18 @@ xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
 生成与扩展相同 SwiftUI View 的预览图（合成数据，不是系统截图；README 使用真实桌面截图）：
 
 ```sh
-swiftc WeekWidget/WeekModel.swift WeekWidget/WeekPreview.swift WeekWidget/WeekView.swift \
-  WeekWidget/WeekIntent.swift Tests/RenderWeek.swift -o /tmp/itsycal-render-week
+swiftc WeekWidget/WeekModel.swift WeekWidget/WeekPreview.swift WeekWidget/WidgetChrome.swift \
+  WeekWidget/WeekView.swift WeekWidget/MonthView.swift WeekWidget/WeekIntent.swift \
+  Tests/RenderWeek.swift -o /tmp/itsycal-render-week
 /tmp/itsycal-render-week /tmp/itsycal-week-previews
 ```
 
 ## 真机验收
 
 - 七列按设置的一周起始日排列；修改设置后自动刷新。过去的日期整列弱化，今天强调显示。
-- 两种尺寸都有顶栏；中号每天最多三项，超大号最多四项。
-- 点 `›` 切到下周、点 `‹` 回到本周，不打开主应用；15 分钟后自动回到本周；多个实例同步切换。
+- 周视图两种尺寸都有顶栏；中号每天最多三项，超大号最多四项。
+- 月视图显示整月（含前后月补齐的日期），每格事件放不下时显示“+N”；点任一格打开当天。
+- 点 `›` 切到下周/下月、点 `‹` 回来，不打开主应用；15 分钟后自动回来；同一小组件的多个实例同步切换，周和月互不影响。
 - 主应用翻到其他月份后，小组件仍显示本周。
 - 修改日历事件或已选日历后，等系统刷新即同步；主应用需要保持运行。
 - 点击日期和溢出入口打开完整当天，包括 Itsycal 未运行时的冷启动；议程隐藏偏好不妨碍这个入口。
