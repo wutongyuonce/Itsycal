@@ -33,17 +33,20 @@ parent=$(dirname "$app")
 mkdir -p "$parent"
 stage=$(mktemp -d "$parent/.itsycal-week-install.XXXXXX")
 backup=$(mktemp -d "$parent/.itsycal-week-backup.XXXXXX")
+# Until the installer runs, both directories only hold the new copy.
+trap 'rm -rf "$stage" "$backup"' EXIT
 ditto "$product" "$stage/.new.app"
-# Stop processes, swap and roll back as one signal-deferred transaction. A
+trap - EXIT
+# Stop processes, swap and roll back without INT/TERM interruption. A
 # suspended extension would otherwise submit an old-version timeline after
 # replacement and be rejected by WidgetKit's archive validation.
 if ! python3 Scripts/install-week.py --app "$app" --stage "$stage/.new.app" --backup "$backup"; then
-    rm -rf "$stage"
-    if [[ -e "$backup/$(basename "$app")" ]]; then
-        echo "Install failed; previous app preserved at $backup/$(basename "$app")" >&2
-    else
-        rm -rf "$backup"
-    fi
+    # The installer cleans up after itself; anything left may be the only
+    # copy of the previous app (e.g. after SIGKILL), so never delete it here.
+    rmdir "$stage" "$backup" 2>/dev/null || true
+    for leftover in "$stage" "$backup"; do
+        [[ -e "$leftover" ]] && echo "Install failed; bundles kept for manual recovery in $leftover" >&2
+    done
     exit 1
 fi
 rm -rf "$stage" "$backup"

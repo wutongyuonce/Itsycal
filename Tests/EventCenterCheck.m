@@ -76,15 +76,16 @@ int main(void) {
         [center setValue:dispatch_queue_create("test.calendars", DISPATCH_QUEUE_SERIAL) forKey:@"queueIsol2"];
         CalendarInfo *info = [CalendarInfo new]; info.calendar = calendar;
         [center setValue:@[info] forKey:@"sourcesAndCalendars"];
-        [center _fetchEventsWithStartDate:MakeDate(2026, 9, 19) endDate:MakeDate(2026, 9, 23) refetch:NO];
+        // Cache the tail first, then request a range whose head is missing:
+        // the last missing day (21st) must still be queried.
+        [center _fetchEventsWithStartDate:MakeDate(2026, 9, 22) endDate:MakeDate(2026, 9, 30) refetch:NO];
         [center _fetchEventsWithStartDate:MakeDate(2026, 9, 19) endDate:MakeDate(2026, 9, 26) refetch:NO];
         NSDictionary *grouped = [center valueForKey:@"eventsForDate"];
         NSCAssert([grouped[date(20, 0)] count] == 1, @"Overnight event starts Tuesday");
-        NSCAssert([grouped[date(21, 0)] count] == 2, @"Overnight ending and next event coexist Wednesday");
+        NSCAssert([grouped[date(21, 0)] count] == 2, @"Last missing day before a cached range must be fetched");
         NSCAssert(grouped[date(22, 0)] == nil, @"Midnight end must not occupy Thursday");
         NSCAssert([grouped[date(23, 0)] count] == 1, @"Zero-duration midnight event must be retained");
-        NSCAssert([grouped[date(25, 0)] count] == 1, @"Overlapping cache query must include its final day");
-        NSCAssert([grouped[date(21, 0)] count] == 2, @"Overlapping query must not duplicate rows");
-        puts("EventCenter checks passed: week interval, overlap, final day, cross-midnight and zero-duration grouping");
+        NSCAssert([grouped[date(25, 0)] count] == 1, @"Re-queried cached days are replaced, not duplicated");
+        puts("EventCenter checks passed: week interval, partial-cache range, cross-midnight and zero-duration grouping");
     }
 }

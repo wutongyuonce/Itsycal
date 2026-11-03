@@ -1,6 +1,6 @@
 import Foundation
 
-struct WeekEvent: Codable, Identifiable {
+struct WeekEvent: Codable {
     let id: String
     let title: String
     let start: TimeInterval
@@ -24,6 +24,7 @@ struct WeekEvent: Codable, Identifiable {
 }
 
 enum WeekShared {
+    static let kind = "ItsycalWeek" // Must match WeekWidgetReloader in the main app.
     static var group: String? { Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String }
 }
 
@@ -69,7 +70,7 @@ struct WeekSnapshot: Codable {
 
 /// Next-week view chosen in the widget. Shared by every widget instance and
 /// expires, so the widget always falls back to the current week.
-struct WeekNavigation: Equatable {
+struct WeekNavigation {
     static let idle: TimeInterval = 15 * 60
 
     let week: Date   // An instant inside the shown week.
@@ -82,25 +83,27 @@ struct WeekNavigation: Equatable {
                        until: now.addingTimeInterval(idle))
     }
 
-    private static let weekKey = "navigationWeek"
-    private static let untilKey = "navigationUntil"
+    /// Next week is offered only when the snapshot can display all of it.
+    static func canShowNextWeek(_ snapshot: WeekSnapshot?, today: Date, calendar: Calendar) -> Bool {
+        guard let snapshot else { return false }
+        return snapshot.message(for: calendar.date(byAdding: .day, value: 7, to: today)!, calendar: calendar) == nil
+    }
+
+    // One key, [week, until], so readers never see half of an update.
+    private static let key = "navigation"
     private static var defaults: UserDefaults? { WeekShared.group.flatMap(UserDefaults.init(suiteName:)) }
 
     static func load() -> WeekNavigation? {
-        guard let defaults, let week = defaults.object(forKey: weekKey) as? TimeInterval,
-              let until = defaults.object(forKey: untilKey) as? TimeInterval else { return nil }
-        return WeekNavigation(week: Date(timeIntervalSince1970: week), until: Date(timeIntervalSince1970: until))
+        guard let value = defaults?.array(forKey: key) as? [TimeInterval], value.count == 2 else { return nil }
+        return WeekNavigation(week: Date(timeIntervalSince1970: value[0]), until: Date(timeIntervalSince1970: value[1]))
     }
 
     /// nil returns to the current week.
     static func store(_ navigation: WeekNavigation?) {
-        guard let defaults else { return }
         if let navigation {
-            defaults.set(navigation.week.timeIntervalSince1970, forKey: weekKey)
-            defaults.set(navigation.until.timeIntervalSince1970, forKey: untilKey)
+            defaults?.set([navigation.week.timeIntervalSince1970, navigation.until.timeIntervalSince1970], forKey: key)
         } else {
-            defaults.removeObject(forKey: weekKey)
-            defaults.removeObject(forKey: untilKey)
+            defaults?.removeObject(forKey: key)
         }
     }
 }

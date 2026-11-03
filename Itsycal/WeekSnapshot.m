@@ -9,7 +9,6 @@ NSDateInterval *WeekSnapshotInterval(NSDate *date, NSInteger weekStartDOW)
     NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
     calendar.timeZone = NSTimeZone.localTimeZone;
     NSDate *today = [calendar startOfDayForDate:date];
-    weekStartDOW = MIN(MAX(weekStartDOW, 0), 6);
     NSInteger weekday = [calendar component:NSCalendarUnitWeekday fromDate:today] - 1;
     NSInteger offset = (weekday - weekStartDOW + 7) % 7;
     NSDate *start = [calendar dateByAddingUnit:NSCalendarUnitDay value:-offset toDate:today options:0];
@@ -35,11 +34,8 @@ void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center,
     formatter.timeZone = calendar.timeZone;
     formatter.dateFormat = @"yyyy-MM-dd";
 
-    BOOL selected = NO;
-    for (id entry in [center sourcesAndCalendars]) {
-        if ([entry isKindOfClass:CalendarInfo.class] && [entry selected]) selected = YES;
-    }
-    NSString *status = !center.calendarAccessGranted ? @"permission" : (!selected ? @"calendars" : @"ready");
+    NSString *status = !center.calendarAccessGranted ? @"permission"
+                     : (!center.hasSelectedCalendars ? @"calendars" : @"ready");
     NSMutableDictionary *days = [NSMutableDictionary new];
     if ([status isEqualToString:@"ready"]) {
         for (NSDate *date = interval.startDate; [date compare:interval.endDate] == NSOrderedAscending;
@@ -64,21 +60,28 @@ void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center,
             days[[formatter stringFromDate:date]] = items;
         }
     }
-    NSDictionary *snapshot = @{
-        @"version": @2,
-        @"generatedAt": @(NSDate.date.timeIntervalSince1970),
+    NSDictionary *content = @{
         @"timeZone": calendar.timeZone.name,
         @"start": @(interval.startDate.timeIntervalSince1970),
         @"end": @(interval.endDate.timeIntervalSince1970),
         @"status": status,
-        @"weekStart": @(MIN(MAX(weekStartDOW, 0), 6)),
+        @"weekStart": @(weekStartDOW),
         @"days": days
     };
+    NSMutableDictionary *snapshot = [content mutableCopy];
+    snapshot[@"version"] = @2;
+    snapshot[@"generatedAt"] = @(NSDate.date.timeIntervalSince1970);
     NSError *error;
     NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:&error];
     if (!data || ![data writeToURL:[container URLByAppendingPathComponent:@"week.json"] options:NSDataWritingAtomic error:&error]) {
         os_log_error(OS_LOG_DEFAULT, "Unable to publish week widget: %{public}@", error.localizedDescription);
         return;
     }
+    // The file is always rewritten so generatedAt stays fresh for the widget's
+    // hourly reload. Reloads are requested only when content changes, which
+    // keeps frequent republishing within WidgetKit's reload budget.
+    static NSDictionary *published; // Only touched on EventCenter's serial work queue.
+    if ([content isEqualToDictionary:published]) return;
+    published = content;
     [WeekWidgetReloader reload];
 }

@@ -47,15 +47,27 @@ with tempfile.TemporaryDirectory() as temporary:
     assert (backup / 'Itsycal.app' / 'Contents' / 'Resources' / 'old').exists()
     assert not stage.exists()
 
+    # The same build is rejected before anything is replaced.
+    same = root / '.same.app'
+    make_app(same, 'com.example.week', '2', 'same')
+    same_backup = Path(temporary) / 'same-backup'
+    same_backup.mkdir()
+    result = run(app, same, same_backup)
+    assert result.returncode != 0
+    assert (app / 'Contents' / 'Resources' / 'new').exists(), 'installed bundle must be untouched'
+    assert not same.exists() and not any(same_backup.iterdir()), 'rejected bundle is cleaned up'
+
     # Failed post-swap verification restores the old bundle and removes the new.
     bad = root / '.bad.app'
-    make_app(bad, 'com.example.week', '2', 'bad') # same build rejects the install
+    make_app(bad, 'com.example.week', '3', 'bad')
+    (bad / 'Contents' / 'Resources' / 'bad').write_text('tampered')  # breaks the signature seal
     bad_backup = Path(temporary) / 'bad-backup'
     bad_backup.mkdir()
     result = run(app, bad, bad_backup)
-    assert result.returncode != 0
+    assert result.returncode != 0 and 'Signature verification failed' in result.stderr, result.stderr
     assert (app / 'Contents' / 'Resources' / 'new').exists(), 'previous bundle must be restored'
-    assert not bad.exists(), 'new staging bundle is consumed on failure'
+    assert not (app / 'Contents' / 'Resources' / 'bad').exists()
+    assert not bad.exists() and not any(bad_backup.iterdir()), 'failed bundle is removed'
 
     # First install has nothing to roll back to.
     first = root / '.first.app'
@@ -67,4 +79,4 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result.returncode == 0, result.stderr
     assert (first_app / 'Contents' / 'Resources' / 'first').exists()
 
-print('install-week check passed: atomic swap, failed verification rollback, first install')
+print('install-week check passed: atomic swap, same-build rejection, failed verification rollback, first install')

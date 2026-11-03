@@ -32,11 +32,20 @@ WEEK_APP_GROUP = 你的团队ID.com.wutongyuonce.Itsycal
 bash Scripts/install-week.sh
 ```
 
-脚本使用本机配置构建 Release App，赋予递增本地 build number，验证嵌套签名；停止旧主应用和 Widget 扩展进程后替换 `/Applications/Itsycal.app`，重新注册，重启用户 chronod 缓存服务并打开。更新时其他小组件会短暂重载；不重置系统数据库或偏好。安装到 `/Applications/Itsycal.app`。Bundle ID 与构建产物不同的同名 App 会被拒绝替换；可用 `INSTALL_APP_PATH` 安装到其他位置。脚本的原子替换助手会等待旧进程退出，必要时结束仍存活的本 App 进程，确认退出后才交换目录；替换期间延迟 INT/TERM 信号，验证失败会恢复旧版。它不是断电安全的事务安装器：若在目录交换后被 SIGKILL，旧版保留在 `/Applications/.itsycal-week-install.*` 中，可手动恢复。`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝和首次安装，不触碰当前 App。
+脚本用本机配置构建 Release App，以当前时间作为 build number 并验证嵌套签名，然后替换安装位置（默认 `/Applications/Itsycal.app`，可用 `INSTALL_APP_PATH` 指定），重新注册、重启用户 chronod 缓存服务并打开 App。其他小组件会短暂重载；不重置系统数据库或偏好。
+
+替换由 `Scripts/install-week.py` 完成：
+
+- 先拒绝 Bundle ID 不同的同名 App 和与已安装版本 build 相同的产物，此时已安装的 App 不受影响。
+- 按完整路径停止当前用户的旧主应用和 Widget 扩展进程，必要时 SIGKILL；确认退出后用一次原子操作交换新旧目录，避免挂起的旧扩展提交旧版本时间线。
+- 交换后签名验证失败会删除新版并恢复旧版。
+- 整个过程忽略 INT/TERM/HUP，不会停在半途。它不是断电安全的事务安装器：若被 SIGKILL，脚本不删除任何残留，旧版留在安装位置同目录的 `.itsycal-week-install.*` 或 `.itsycal-week-backup.*` 中，失败信息会列出具体路径。
+
+`Tests/install-check.py` 在临时目录验证成功替换、同版本拒绝、签名失败回滚和首次安装，不触碰当前 App。
 
 主应用首次需要允许日历访问，并在设置 Events 页选日历。若从早期的 `com.local.ItsycalWeekApp` 或 `com.wutongyuonce.ItsycalWeek` 升级，新 bundle ID 会被 macOS 视为另一个 App：需要重新授权、重新选择日历，并从桌面移除旧实例后添加新的“本周日程”小组件。旧共享数据和旧授权不会迁移到新身份。桌面右键“编辑小组件”，搜索“本周日程”。中号和超大号都支持；已有实例不会自动变换尺寸。
 
-安装实测已确认开发签名可运行、共享组访问获准、14 天 ready 快照可写出、系统扩展 timeline 返回 15 条。中号与超大号可以加入图库。后续日历编辑同步、各点击路径与跨时区行为仍应按下方清单验收。
+正常安装后，系统日志中扩展的 timeline 应返回 15 条（处于下周视图时 16 条）。各点击路径与跨时区行为按下方清单验收。
 
 ## 灰色占位或更新后不刷新
 
@@ -70,8 +79,8 @@ xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
 渲染与扩展相同 SwiftUI View 的示例画面：
 
 ```sh
-swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift WeekWidget/WeekIntent.swift \
-  Tests/RenderWeek.swift -o /tmp/itsycal-render-week
+swiftc WeekWidget/WeekModel.swift WeekWidget/WeekPreview.swift WeekWidget/WeekView.swift \
+  WeekWidget/WeekIntent.swift Tests/RenderWeek.swift -o /tmp/itsycal-render-week
 /tmp/itsycal-render-week /tmp/itsycal-week-previews
 ```
 
@@ -81,7 +90,7 @@ swiftc WeekWidget/WeekModel.swift WeekWidget/WeekView.swift WeekWidget/WeekInten
 
 - 七列按设置的一周起始日排列；修改设置后自动刷新。过去整列弱化，当天强调。
 - 两种尺寸都有“本周/下周”、日期范围、切换按钮与总数的顶栏；中号每天最多三项，超大号最多四项。
-- 点 `›` 切到下周、点 `‹` 回到本周，不打开主应用；15 分钟不操作自动回到本周；多个实例同步切换。
+- 点 `›` 切到下周、点 `‹` 回到本周，不打开主应用；切到下周 15 分钟后自动回到本周；多个实例同步切换。
 - 主应用翻到其他月份后，小组件仍显示本周。
 - 修改日历事件或已选日历，等待系统刷新后同步；主应用需要保持运行。
 - 点击日期和溢出入口打开完整当天，主应用原议程隐藏偏好不妨碍这个入口。

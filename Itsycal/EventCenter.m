@@ -135,6 +135,19 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     return sourcesAndCalendars;
 }
 
+- (BOOL)hasSelectedCalendars {
+    for (id entry in [self sourcesAndCalendars]) {
+        if ([entry isKindOfClass:CalendarInfo.class] && [entry selected]) return YES;
+    }
+    return NO;
+}
+
+- (void)afterPendingFetches:(dispatch_block_t)block {
+    dispatch_async(_queueWork, ^{
+        dispatch_async(dispatch_get_main_queue(), block);
+    });
+}
+
 - (NSDictionary *)filteredEventsForDate {
     //os_log(OS_LOG_DEFAULT, "%s", __FUNCTION__);
     __block NSDictionary *filteredEventsForDate;
@@ -165,7 +178,6 @@ static NSURL *MeetingURLForEvent(EKEvent *event); // see below
     MoDate endMoDate   = [self.delegate fetchEndDate];
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
-            self->_weekInterval = nil;
             [self _fetchSourcesAndCalendars];
             [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:YES];
             [self _fetchWeekAndPublish];

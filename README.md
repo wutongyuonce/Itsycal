@@ -9,7 +9,7 @@
 ## 功能
 
 - 中号和超大号两种原生横向小组件，顶栏显示日期范围与日程总数。
-- 顶栏 `›` 切到下周、`‹` 回到本周，不打开主应用；15 分钟不操作自动回到本周。
+- 顶栏 `›` 切到下周、`‹` 回到本周，不打开主应用；切到下周 15 分钟后自动回到本周。
 - 七列显示当前一周，日期排列**跟随 Itsycal 设置中的“一周从周几开始”**。
 - 在设置 → Appearance 修改“一周从周几开始”后，主应用会重新生成共享数据并请求小组件刷新，无需重建。
 - 今天突出显示；已过去的日期和其下列表整列变暗。
@@ -85,7 +85,7 @@ bash Scripts/install-week.sh
 
 ## 版本号
 
-- `MARKETING_VERSION`（用户看到的版本）在 `Itsycal.xcodeproj/project.pbxproj` 的两个 target 中，目前为 `1.2.0`。
+- `MARKETING_VERSION`（用户看到的版本）在 `Itsycal.xcodeproj/project.pbxproj` 的两个 target 中设置。
 - `CURRENT_PROJECT_VERSION` 是默认 build 号。
 - 主应用和 Widget 的 `Info.plist` 使用 `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`。
 - 本地安装脚本会用当前时间覆盖 build 号，避免 WidgetKit 继续使用旧版本的时间线归档。
@@ -96,14 +96,7 @@ bash Scripts/install-week.sh
 bash Tests/check-week.sh
 ```
 
-检查使用合成数据，不读取个人日历。覆盖：
-
-- 可配置的一周起始日、跨年、夏令时
-- 14 天共享数据范围
-- 四项容量与溢出
-- 日期链接与缺失数据
-- 真实 EventCenter 的交叠查询、跨午夜和零时长事件
-- 安装替换、失败回滚和首次安装
+检查使用合成数据，不读取个人日历；覆盖范围见[规格第 7 节](docs/WEEK_WIDGET_SPEC.md#7-验证)。
 
 ## 上游与许可
 

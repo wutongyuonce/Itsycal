@@ -1,4 +1,5 @@
 import AppIntents
+import WidgetKit
 
 /// Widget button action: show next week, or return to the current week.
 struct SwitchWeekIntent: AppIntent {
@@ -12,6 +13,8 @@ struct SwitchWeekIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         WeekNavigation.store(next ? .nextWeek(from: .now, calendar: WeekDates.calendar) : nil)
-        return .result() // WidgetKit reloads the timeline after a widget intent.
+        // WidgetKit reloads the tapped widget; other instances share the state.
+        WidgetCenter.shared.reloadTimelines(ofKind: WeekShared.kind)
+        return .result()
     }
 }

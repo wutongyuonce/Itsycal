@@ -64,8 +64,30 @@ struct WeekModelCheck {
         let navigated = WeekDates.timelineDates(from: sunday, calendar: calendar, navigation: navigation)
         assert(navigated.count == 16 && navigated.contains(navigation.until) && navigated == navigated.sorted())
         assert(WeekDates.timelineDates(from: navigation.until, calendar: calendar, navigation: navigation).count == 15)
-        let roundtrip = try JSONDecoder().decode(WeekSnapshot.self, from: JSONEncoder().encode(good))
-        assert(roundtrip.days.count == 7)
-        print("WeekModel checks passed: configurable week start, year boundary, DST, capacity, links, coverage, timezone and next-week view")
+        // A click just before the week starts keeps that absolute week, which then is the current week.
+        let lateSunday = instant("2026-10-25T23:55:00-07:00")
+        let earlyMonday = instant("2026-10-26T00:05:00-07:00")
+        let late = WeekDates.days(containing: WeekNavigation.nextWeek(from: lateSunday, calendar: calendar).shown(at: earlyMonday),
+                                  weekStart: 1, calendar: calendar)
+        assert(late == WeekDates.days(containing: earlyMonday, weekStart: 1, calendar: calendar))
+
+        // › is offered only when every next-week bucket is present and the snapshot is ready.
+        assert(!WeekNavigation.canShowNextWeek(nil, today: sunday, calendar: calendar))
+        assert(!WeekNavigation.canShowNextWeek(good, today: sunday, calendar: calendar))
+        let full = WeekSnapshot.preview(at: sunday, calendar: calendar)
+        assert(WeekNavigation.canShowNextWeek(full, today: sunday, calendar: calendar))
+        let denied = WeekSnapshot(version: 2, generatedAt: full.generatedAt, timeZone: full.timeZone, start: full.start,
+                                  end: full.end, status: "permission", weekStart: 1, days: full.days)
+        assert(!WeekNavigation.canShowNextWeek(denied, today: sunday, calendar: calendar))
+
+        // Field names and types written by Itsycal/WeekSnapshot.m.
+        let written = """
+        {"version":2,"generatedAt":1.5,"timeZone":"America/Los_Angeles","start":0,"end":1,"status":"ready",
+         "weekStart":1,"days":{"2026-10-19":[{"id":"e/1","title":"T","start":0,"end":1,"allDay":false,
+         "spansDay":false,"startsHere":true,"endsHere":false,"continues":false,"color":[0.1,0.2,0.3]}]}}
+        """
+        let decoded = try JSONDecoder().decode(WeekSnapshot.self, from: Data(written.utf8))
+        assert(decoded.days["2026-10-19"]?.first?.title == "T")
+        print("WeekModel checks passed: week start, year boundary, DST, capacity, links, coverage, timezone, next-week view and snapshot format")
     }
 }

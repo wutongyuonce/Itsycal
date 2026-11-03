@@ -4,6 +4,7 @@ import argparse
 import ctypes
 import os
 import plistlib
+import re
 import signal
 import shutil
 import subprocess
@@ -24,12 +25,16 @@ def version(app: str) -> str:
 
 
 def stop(path: str, name: str) -> None:
-    pids = subprocess.run(['pgrep', '-f', f'^{path}'], text=True, capture_output=True).stdout.split()
+    pattern = '^' + re.escape(path) + '( |$)'
+    pids = subprocess.run(['pgrep', '-U', str(os.getuid()), '-f', pattern],
+                          text=True, capture_output=True).stdout.split()
     for pid in pids:
         try:
             os.kill(int(pid), signal.SIGTERM)
         except ProcessLookupError:
             continue
+        except PermissionError:
+            fail(f'Cannot stop {name} process {pid}; refusing to replace the app.')
         for _ in range(30):
             try:
                 os.kill(int(pid), 0)
@@ -64,31 +69,36 @@ def main() -> None:
     parser.add_argument('--backup', required=True)
     args = parser.parse_args()
 
-    # A signal during the transaction is deferred until the old and new bundles
-    # are both safe on disk. SIGKILL still leaves a recoverable backup path.
+    # INT/TERM/HUP are ignored (not deferred) for the whole run, so stopping,
+    # swapping and rolling back are never interrupted halfway. SIGKILL can
+    # still interrupt; the shell wrapper then keeps any leftover bundles.
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, signal.SIG_IGN)
 
-    stop(os.path.join(args.app, 'Contents', 'MacOS', 'Itsycal'), 'Itsycal')
-    stop(os.path.join(args.app, 'Contents', 'PlugIns', 'WeekWidget.appex', 'Contents', 'MacOS', 'WeekWidget'), 'Widget')
-
     had_old = os.path.exists(args.app)
     backup_app = os.path.join(args.backup, os.path.basename(args.app))
+    try:
+        # Everything before the swap leaves the installed app untouched.
+        if had_old and version(args.app) == version(args.stage):
+            fail('The built bundle has the same build as the installed app.')
+        stop(os.path.join(args.app, 'Contents', 'MacOS', 'Itsycal'), 'Itsycal')
+        stop(os.path.join(args.app, 'Contents', 'PlugIns', 'WeekWidget.appex', 'Contents', 'MacOS', 'WeekWidget'),
+             'Widget')
+        if had_old:
+            # One filesystem operation: after this, neither path is ever missing.
+            swap(args.app, args.stage)
+        else:
+            os.rename(args.stage, args.app)
+    except BaseException:
+        shutil.rmtree(args.stage, ignore_errors=True)
+        raise
     if had_old:
-        old = version(args.app)
-        # One filesystem operation: after this, neither path is ever missing.
-        swap(args.app, args.stage)
         os.rename(args.stage, backup_app)  # old bundle now in backup
-    else:
-        old = None
-        os.rename(args.stage, args.app)
     try:
         proc = subprocess.run(['codesign', '--verify', '--deep', '--strict', args.app],
                               text=True, capture_output=True)
         if proc.returncode != 0:
             fail('Signature verification failed after install: ' + proc.stderr.strip())
-        if version(args.app) == old:
-            fail('Installed bundle has the same build as the previous app.')
     except BaseException:
         shutil.rmtree(args.app, ignore_errors=True)
         if had_old:

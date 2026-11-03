@@ -1019,11 +1019,14 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     _showWidgetDay = YES;
     [_ec refetchAll];
     [self updateAgenda];
-    BOOL selected = NO;
-    for (id entry in [_ec sourcesAndCalendars]) {
-        if ([entry isKindOfClass:CalendarInfo.class] && [entry selected]) selected = YES;
-    }
-    if (!_ec.calendarAccessGranted || !selected) [self showPrefs:self];
+    // On a cold launch the calendar list is still empty until the fetch runs.
+    __weak typeof(self) weakSelf = self;
+    [_ec afterPendingFetches:^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        EventCenter *ec = strongSelf->_ec;
+        if (!ec.calendarAccessGranted || !ec.hasSelectedCalendars) [strongSelf showPrefs:strongSelf];
+    }];
 }
 
 - (void)dateURLReceived:(NSDate *)showDate

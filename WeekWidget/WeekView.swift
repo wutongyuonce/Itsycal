@@ -2,26 +2,34 @@ import AppIntents
 import SwiftUI
 
 struct WeekView: View {
-    let date: Date  // Now: drives today, past dimming and staleness.
-    let shown: Date // Any date inside the displayed week.
-    let snapshot: WeekSnapshot?
-    var compact = true
-
+    private let date: Date // Now: drives today, past dimming and staleness.
+    private let compact: Bool
+    private let calendar = WeekDates.calendar
+    private let dates: [Date]           // The displayed week.
+    private let dayEvents: [[WeekEvent]] // Parallel to dates.
+    private let nextWeek: Bool
+    private let canShowNextWeek: Bool
+    private let issue: String?
+    private let stale: Bool
     private let accent = Color(red: 0.19, green: 0.39, blue: 0.84)
-    private var calendar: Calendar { WeekDates.calendar }
-    private var weekStart: Int { min(max(snapshot?.weekStart ?? 1, 0), 6) }
-    private var dates: [Date] { WeekDates.days(containing: shown, weekStart: weekStart, calendar: calendar) }
-    private var nextWeek: Bool { WeekDates.isNextWeek(shown, today: date, weekStart: weekStart, calendar: calendar) }
-    private var issue: String? {
-        guard let snapshot else { return "打开 Itsycal 设置日程" }
-        return snapshot.message(for: shown, calendar: calendar)
-    }
-    private var canShowNextWeek: Bool {
-        snapshot?.message(for: calendar.date(byAdding: .day, value: 7, to: date)!, calendar: calendar) == nil
-    }
-    private var stale: Bool {
-        guard let snapshot else { return false }
-        return date.timeIntervalSince1970 - snapshot.generatedAt > 86400
+
+    /// `shown` is any date inside the week to display.
+    init(date: Date, shown: Date, snapshot: WeekSnapshot?, compact: Bool) {
+        let calendar = WeekDates.calendar
+        let weekStart = snapshot?.weekStart ?? 1
+        self.date = date
+        self.compact = compact
+        dates = WeekDates.days(containing: shown, weekStart: weekStart, calendar: calendar)
+        dayEvents = dates.map { snapshot?.days[WeekDates.key($0, calendar: calendar)] ?? [] }
+        nextWeek = WeekDates.isNextWeek(shown, today: date, weekStart: weekStart, calendar: calendar)
+        canShowNextWeek = WeekNavigation.canShowNextWeek(snapshot, today: date, calendar: calendar)
+        if let snapshot {
+            issue = snapshot.message(for: shown, calendar: calendar)
+            stale = date.timeIntervalSince1970 - snapshot.generatedAt > 86400
+        } else {
+            issue = "打开 Itsycal 设置日程"
+            stale = false
+        }
     }
 
     var body: some View {
@@ -79,15 +87,14 @@ struct WeekView: View {
         return formatter.string(from: dates[0], to: dates[6])
     }
 
-    private var totalCount: Int {
-        dates.reduce(0) { $0 + (snapshot?.days[WeekDates.key($1, calendar: calendar)]?.count ?? 0) }
-    }
+    private var totalCount: Int { dayEvents.reduce(0) { $0 + $1.count } }
 
     private var columns: some View {
         GeometryReader { geometry in
             HStack(alignment: .top, spacing: 0) {
                 ForEach(Array(dates.enumerated()), id: \.offset) { index, day in
-                    dayColumn(day, index: index, capacity: WeekDates.capacity(height: geometry.size.height, compact: compact))
+                    dayColumn(day, events: dayEvents[index],
+                              capacity: WeekDates.capacity(height: geometry.size.height, compact: compact))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .overlay(alignment: .leading) {
                             if index > 0 {
@@ -122,10 +129,9 @@ struct WeekView: View {
         }
     }
 
-    private func dayColumn(_ day: Date, index: Int, capacity: Int) -> some View {
+    private func dayColumn(_ day: Date, events: [WeekEvent], capacity: Int) -> some View {
         let today = calendar.isDate(day, inSameDayAs: date)
         let past = day < calendar.startOfDay(for: date)
-        let events = snapshot?.days[WeekDates.key(day, calendar: calendar)] ?? []
         let hidden = max(0, events.count - capacity)
         let link = WeekDates.link(day, calendar: calendar)
         return VStack(alignment: .leading, spacing: compact ? 4 : 10) {

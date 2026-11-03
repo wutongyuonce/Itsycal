@@ -1,157 +1,105 @@
-# Itsycal：本周日程小组件
+# Itsycal：本周日程小组件规格
 
-状态：周起始日可配置、自动刷新已实现。开发签名构建、共享组快照、系统时间线和 Release 安装已跑通。后续日历编辑与全部交互场景仍需真机验收。
+本文是桌面小组件的现行行为契约。代码与本文冲突时以代码为事实，并同步修正本文。构建、安装与排查见 [WEEK_WIDGET_SETUP.md](WEEK_WIDGET_SETUP.md)。
 
-上游基线：`sfsam/Itsycal` commit `1a31050555a97e3b7aac5470ec147abfe7aa0d6a`（0.27.3）。本次基线要求 macOS 27.0；开发环境为 macOS 27.0.1、Xcode 27.1。
+上游基线：`sfsam/Itsycal` `1a31050555a97e3b7aac5470ec147abfe7aa0d6a`（0.27.3）。要求 macOS 27 / Xcode 27。
 
-## 1. 用户目标与范围
+## 1. 范围与非目标
 
-用户已确认使用原生 macOS 桌面小组件，数据来自 Itsycal 已选日历中的日程；超出空间时显示剩余数量。后续视觉要求为合理、好看、极简，不复刻参考图。
+- 原生 macOS 桌面小组件，显示 Itsycal 已选日历中的日程，按天分列，不做小时网格。
+- 显示包含今天的一周七天；第一列跟随 Itsycal 的“一周从周几开始”（`WeekStartDOW`，0=周日…6=周六）。
+- 顶栏可在本周与下周之间切换并返回本周。
+- 非目标：翻到下周以外的周、提醒事项、完成勾选、事件编辑、农历或节气、小组件内滚动、独立于主应用的日历配置。
 
-- 显示包含今天的一周七天；每周起始日跟随 Itsycal 的“一周从周几开始”设置，七天同时可见。
-- 每天日程放在对应列，按列表顺序排列，不做小时网格。
-- 过去日期及其下面整列内容变暗；今天突出显示。
-- 保留日历选择、完整当天列表入口、跨日事件和合理的失败状态。
-- 顶栏可在本周与下周之间切换，并可返回本周；不支持翻到更远的周。
-- 不包含提醒事项、完成勾选、事件编辑、农历或节气。
+## 2. 布局
 
-## 2. 当前可见行为
+支持 `systemMedium`（约 344 × 164 pt）和 `systemExtraLarge`（约 704 × 344 pt），按 WidgetFamily 选择样式，不按容器宽度猜测。已有实例不会自动改变尺寸。
 
-### 日期和布局
+**顶栏：** 左侧为“本周/下周”与日期范围，紧随其右为 `‹ ›` 切换按钮，最右为该周日程总数（有提示时隐藏）。中号顶栏 16 pt 高、标题 11 pt、范围不含年份、总数写作“N 项”；超大号 18 pt、标题 12 pt、范围含年份、总数写作“N 项日程”。
 
-支持 `systemMedium` 和 `systemExtraLarge` 两种原生横向尺寸，优先使用中号缩小桌面占用。系统不支持自定义外框为原宽度的三分之二：本机超大约 704 × 344 pt，中号约 344 × 164 pt。已有超大实例不会自动变小，需要用户切换尺寸或重新添加中号。
+**七列：** 中号星期在上、日期在下，8 pt 内容边距；超大号星期日期同行，16 pt 内容边距。今天以蓝色圆角日期标识，过去的日期整列 opacity 0.5，仍可点击。今天已结束的事件不单独变暗。
 
-两种尺寸都有顶栏：左侧为“本周/下周”与日期范围，紧随其右为 `‹ ›` 切换按钮，最右为该周日程总数。中号顶栏 16 pt 高、标题 11 pt、范围不含年份（`MMMd`）、总数写作“N 项”，七列星期在上、日期在下，8 pt 内容边距；超大号顶栏 18 pt、标题 12 pt、范围含年份、总数写作“N 项日程”，星期日期同行，16 pt 内容边距与较大日期。按 WidgetFamily 选择样式，不通过容器宽度猜测。两者均以蓝色圆角日期标识今天，过去整列弱化。
+**每日列表：** 全天事件在前，随后按开始时间排列，开始时间相同时按标题、事件标识稳定排序。标题 10 pt 单行省略；中号时间 8 pt、上下排列、每行 25 pt；超大号时间 9 pt、放得下时同行、每行 36 pt。`WeekDates.capacity` 按列区实际高度计算（中号预留 46 pt、超大号 54 pt，每天最多四项）：中号每天显示三项，超大号四项。超出显示“还有 N 项”，没有事件显示“无日程”。
 
-七列的第一列由 `WeekStartDOW` 决定（0=周日…6=周六），因此周一、周日或其他日期都可以是首列。修改设置后主应用重建共享快照并请求 WidgetCenter 刷新，不重建 App。日期运算使用本地 Calendar，覆盖跨月、跨年和夏令时；到达新的起始日时整体切换。
+**跨日事件：** 每个覆盖日独立显示，不画跨列长条。全天跨日显示“全天”；计时跨夜起始日显示 `22:00 →`，完整中间日显示“跨日”，结束日显示 `→ 02:00`。区间为 `[start, end)`：00:00 结束不占用结束日；零时长事件归入开始日。重复事件使用 EventKit 生成的实例。
 
-### 每日列表和容量
+## 3. 交互
 
-全天事件在前，随后沿用 EventCenter 排序的跨日/计时事件。计时事件按开始时间排列，相同开始时间以标题及事件标识稳定排序。
+**打开主应用：** 点击日期、事件或溢出入口，经 `itsycal-week://date/yyyy-MM-dd?widget=1` 打开该日完整议程；点击“本周”标题打开今天，点击“下周”标题打开下周首日。主应用收到 `widget=1` 时临时显示一天议程，不修改议程隐藏偏好；用户选择别的日期或修改议程设置后恢复常规行为。日历未授权或没有已选日历时同时打开设置窗口；判断在本次重新获取日历之后进行，冷启动时也成立。
 
-标题均为 10 pt 常规字重。中号时间 8 pt，时间在上、标题在下，每行 25 pt；超大号时间 9 pt，空间足够时时间标题同行，较窄时上下排列，每行 36 pt。标题一行省略，中号更容易截断长标题，可点击查看完整内容。
+**本周/下周切换：** 按钮是交互式小组件按钮（`Button(intent:)` + `SwitchWeekIntent`），在扩展进程内执行，不打开主应用。
 
-`WeekDates.capacity` 按列区实际高度与对应样式计算：中号日期及溢出预留 46 pt，超大号 54 pt，且所有尺寸每天最多四项。顶栏在列区之外，不重复计算。中号扣除顶栏后列区约 128 pt，每天显示三项及溢出入口；超大号仍为四项。超出显示剩余数量，无事件显示 `无日程`。不滚动，不截断数据数组。
+- 显示本周时 `›` 可点、`‹` 置灰。快照无法完整显示下周（无快照、未授权、未选日历、时区不符、覆盖或日期桶缺失）时 `›` 也置灰，不会切到一张提示卡。
+- 显示下周时 `‹` 可点（回到本周）、`›` 置灰。今天高亮和过去变暗仍按真实今天计算。
+- 选择存于 App Group `UserDefaults` 的单个键 `navigation`（`[下周内的时间点, 到期时间]`），所有实例共享；点击后扩展请求重载所有实例的时间线。
+- 切到下周 15 分钟后自动回到本周。到期时间从点击 `›` 起固定计算，不因其他操作续期，不可配置；timeline 在到期时刻插入一条本周条目。
+- 记录的是绝对日期：到期前跨过一周起始日时，原“下周”自然成为本周，不会跳到更远的周。
+- App Group 不可用时切换不生效，小组件保持本周。
 
-过去日期整列 opacity 为 0.5，仍可点击。今天已结束的事件不在小组件中单独变暗。系统可重新着色或弱化整个小组件，今天的字重和圆角日期形状继续提供区别。
+## 4. 数据、状态与刷新
 
-### 跨日事件
+主应用是 `week.json` 的唯一写入方，扩展只读。快照覆盖从当前起始日起的本周和下周共 14 个本地日期，携带 `weekStart`，与菜单栏月历翻到哪个月无关。schema 版本为 2；字段名见 `Itsycal/WeekSnapshot.m`，`Tests/WeekModelCheck.swift` 以同样的 JSON 校验解码。
 
-每个实际覆盖日生成独立片段，不绘制跨列长条。全天跨日片段显示“全天”；计时跨夜片段起始日显示 `22:00 →`，完整中间日显示“跨日”，结束日显示 `→ 02:00`。
-
-结束边界为排他的 `[start, end)`：00:00 结束不占用结束日。零时长事件归入开始日。重复规则由 EventKit 生成实例；小组件不重新展开。
-
-### 点击和主应用
-
-点击日期、事件或溢出入口打开相应日期的完整日程。使用独立路由 `itsycal-week://date/yyyy-MM-dd?widget=1`。
-
-主应用收到 widget 参数后暂时展示一天议程，即使原偏好把议程设为隐藏，也不覆盖该偏好。用户选择别的日期或改变议程设置后恢复常规行为。首次未授权/未选日历时打开主应用设置。
-
-所有小组件共用主应用已选日历，不增加第二套配置。
-
-### 本周/下周切换
-
-顶栏按钮是交互式小组件按钮（`Button(intent:)` + `SwitchWeekIntent`），在扩展进程内执行，不打开主应用：
-
-- 显示本周时 `›` 可点，切到下周；`‹` 置灰。下周数据不完整（权限、未选日历、时区或覆盖缺失）时 `›` 也置灰，不切到一张提示卡。
-- 显示下周时 `‹` 可点，回到本周；`›` 置灰。标题变为“下周”，点击标题打开下周首日；今天高亮和过去弱化仍按真实今天计算，因此下周整列不变暗。
-- 选择存于 App Group `UserDefaults`（`navigationWeek` 为下周内的时间点，`navigationUntil` 为到期时间），由所有本周日程小组件实例共享。15 分钟无操作后自动回到本周：timeline 在到期时刻额外插入一条本周条目。
-- 记录的是绝对日期而非偏移量，因此到期前恰好跨过一周起始日时，原“下周”会自然变成本周，不会跳到更远的周。
-
-## 3. 状态、刷新与限制
-
-| 情况 | 当前行为 |
+| 情况 | 小组件表现 |
 | --- | --- |
 | 没有快照或读取/解码失败 | 保留日期外壳，提示打开 Itsycal 设置 |
-| 日历未授权 | 不导出事件，提示打开主应用允许访问 |
+| 日历未授权 | 不导出事件，提示允许访问日历 |
 | 没有已选日历 | 提示在主应用中选择日历 |
 | 正常但无事件 | 七列显示“无日程” |
-| 时区不匹配 | 提示打开主应用更新，不伪造当前时区的空日程 |
-| 日期覆盖不足或桶缺失 | 提示获取本周日程 |
-| 超过 24 小时未生成快照 | 保留可用列表，右下角显示可点击的刷新状态图标，无障碍说明数据可能过期 |
-| 共享容器/写入失败 | 日志报告错误，保留上一个完整文件；扩展按已有快照或初始状态显示 |
+| 时区与快照不符 | 提示打开主应用更新，不伪造当前时区的空日程 |
+| 覆盖不足或日期桶缺失 | 提示获取这一周的日程；缺桶不当作空日 |
+| 快照生成超过 24 小时 | 保留列表，右下角显示可点击的刷新图标 |
+| 共享容器不可用或写入失败 | 主应用记日志并保留上一个完整文件 |
 
-EventCenter 是唯一事件查询、过滤、分日的 authority。主应用是唯一快照写入方，扩展只读；使用 JSON 原子替换，避免半写文件。
+**刷新：** 事件变化、日历选择变化、一周起始日变化、跨日、时区或系统时钟变化、唤醒和重新激活时，主应用重新查询并发布快照。文件每次原子重写，以保持 `generatedAt` 新鲜；只有内容（除 `generatedAt` 外）变化时才请求 WidgetCenter 重载，避免耗尽系统重载预算。TimelineProvider 生成现在、未来 14 个本地午夜，以及（若有）下周视图到期时刻的条目，并申请一小时后重载。
 
-主应用事件变化、日历选择变化、一周起始日变化、跨日、时区/系统时钟变化、唤醒、重新激活时更新或重新查询数据，发布快照后请求 WidgetCenter 重载。
+**限制：** 主应用退出后，已有快照仍按 timeline 推进日期，但不再同步新的编辑；超出覆盖范围或快照过期时明确提示。实际重载与渲染时机由系统决定。撤销权限后，主应用观察到变化才会清除导出内容。小组件使用 `.privacySensitive()`，在系统隐私状态下内容会被遮蔽。
 
-快照保留从当前起始日算起的本周和下周共 14 个本地日期，并携带 `weekStart`；不因菜单栏翻到其他月份而缺少本周。快照 schema 版本为 2。TimelineProvider 生成现在、未来 14 个本地午夜及（若有）下周视图到期时刻的条目，并申请一小时后重载。日期状态按每条 timeline 的日期计算。
-
-主应用退出后，已有快照可按 timeline 推进日期；新的日程编辑不会持续同步。超出 14 天覆盖或快照过期会明确提示。系统管理实际重载及渲染时机，不提供秒级同步或午夜精确到秒保证。日历变化撤权在主应用观察到后清除导出内容，不能承诺即时撤回系统已渲染的画面。
-
-## 4. 架构与规则归属
+## 5. 规则归属
 
 ```mermaid
 flowchart LR
     EK[EventKit] --> EC[EventCenter\n查询、过滤、跨日分组]
-    EC --> UI[原有菜单栏月历与议程]
-    EC --> EX[WeekSnapshot\n14日范围与快照导出]
+    EC --> UI[菜单栏月历与议程]
+    EC --> EX[WeekSnapshot\n14 日范围与导出]
     EX --> SH[(App Group\nweek.json)]
-    EX --> WR[WeekWidgetReloader\nWidgetCenter 请求]
-    SH --> TP[WeekProvider\n加载与午夜时间线]
-    TP --> WV[WeekView\n七列布局]
-    WV --> DL[独立日期路由]
-    DL --> UI
+    EX --> WR[WeekWidgetReloader]
+    SH --> TP[WeekProvider\n时间线]
+    NI[SwitchWeekIntent] --> ND[(App Group\nnavigation)]
+    ND --> TP
+    TP --> WV[WeekView]
+    WV --> DL[日期链接] --> UI
 ```
 
-| 义务 | Authority / interface | 验证 |
-| --- | --- | --- |
-| 事件查询、筛选、分日和缓存覆盖 | `EventCenter.m` | 真实实现 + 内存 EventKit store 检查 |
-| 桌面 14 天范围、周起始读取、原子导出、权限状态 | `WeekSnapshot.m` / `WeekSnapshotInterval`、`PublishWeekSnapshot` | 构建、真实 interval 检查与本机共享组写入验证 |
-| 可配置周起始、日期桶 key、覆盖校验、容量和链接 | `WeekModel.swift` / `WeekDates`、`WeekSnapshot.message` | Swift 离线检查 |
-| 系统 timeline | `WeekWidget.swift` / `WeekProvider` | 构建、午夜日期生成检查；系统接受15条时间线 |
-| 本周/下周选择、到期与共享存储 | `WeekModel.swift` / `WeekNavigation`；`WeekIntent.swift` / `SwitchWeekIntent` | Swift 离线检查；构建产物含 AppIntents 元数据 |
-| 视觉、顶栏切换、整列变暗、今天强调、溢出 | `WeekView.swift` | 浅/深色、本周/下周离线渲染与用户桌面添加实测 |
-| 日期链接与完整当天入口 | `AppDelegate.m`、`ViewController.m` | 构建与静态调用链检查；点击待真机验证 |
+| 规则 | 权威位置 |
+| --- | --- |
+| 事件查询、筛选、分日、缓存覆盖；“已选日历”判定 | `EventCenter.m`（`hasSelectedCalendars`） |
+| 快照 14 日范围、状态、导出与重载去抖 | `WeekSnapshot.m` |
+| 读端周起始与覆盖校验、日期 key、容量、链接、timeline 日期 | `WeekModel.swift`（`WeekDates`、`WeekSnapshot.message`） |
+| 本周/下周状态、到期、`›` 可用性 | `WeekModel.swift`（`WeekNavigation`）、`WeekIntent.swift` |
+| 视觉与布局 | `WeekView.swift` |
+| 日期链接解析与一天议程 | `AppDelegate.m`、`ViewController.m` |
 
-现有 EventCenter 曾把未缓存日期范围的最后一天作为排他上界，可能漏查。现在在任何部分缺失时查询完整半开区间，并替换该范围的缓存；空桶用于清除旧条目，但不作为非空事件日发布给原议程。零时长事件也保留。
+周起始与 `yyyy-MM-dd` key 在主应用（Objective-C）和扩展（Swift）各有一份实现，因为二者在不同进程和 target。读端以快照的 `start`/`end`/`weekStart` 和日期桶校验，两边不一致时显示提示，不会显示错误日程。
 
-MoCalendar 绘制、Agenda 详情、会议 URL 提取及其他主应用功能保持原有模块归属。
+## 6. Fork 身份
 
-## 5. Fork 身份与安装
+- 主应用 `com.wutongyuonce.Itsycal`，扩展 `com.wutongyuonce.Itsycal.WeekWidget`，显示名 Itsycal，安装为 `Itsycal.app`。
+- URL scheme `itsycal-week`。App Group 默认 `group.com.wutongyuonce.Itsycal`，由 `Local.xcconfig` 的 `WEEK_APP_GROUP` 覆盖。
+- 扩展启用 sandbox；主应用不是沙盒应用。不含更新器。保留 MIT 许可与上游署名，独立演进，不自动合并上游。
 
-这是可以与官方版共存的个人 fork：
+## 7. 验证
 
-- 主应用 bundle ID：`com.wutongyuonce.Itsycal`；显示名 `Itsycal`。
-- 扩展 bundle ID：`com.wutongyuonce.Itsycal.WeekWidget`。
-- URL scheme：`itsycal-week`。
-- App Group 默认值：`group.com.wutongyuonce.Itsycal`，可经 Local.xcconfig 覆盖。
-- 扩展启用 sandbox，主应用不为此迁移为沙盒应用。
-- 不包含更新器；用户自行构建并安装新版本。
-- 保留 MIT 许可和上游署名。本项目独立演进，不再自动合并上游。
+- `bash Tests/check-week.sh`：周起始（周一/周日/周三）、跨年、夏令时、timeline 日期与到期条目、容量、链接、覆盖与缺桶、时区、下周可用性与绝对日期语义、快照字段解码；真实 EventCenter 的部分缓存区间查询、跨午夜、排他午夜、零时长；安装替换、同版本拒绝、签名失败回滚、首次安装。
+- `Tests/RenderWeek.swift` 只生成预览图（两种尺寸 × 本周/下周 × 浅/深色），不做断言。
+- 需要真机确认：桌面实际排版、按钮点击与多实例同步、深链接、睡眠后跨周、系统刷新延迟。
 
-本机现使用用户创建的 Apple Development 身份，已补齐 Apple 官方 WWDR G3 中间证书。Local.xcconfig 中团队及团队前缀共享组匹配；Xcode Automatic signing 完成两个 target 的 Debug / Release 构建，无需手工创建 profile。安装后刷新 chronod 缓存，系统已实际启动扩展并成功获取时间线，containermanagerd 已批准共享组。具体操作与此前 ad-hoc 路线的有限结论见安装说明。
-
-安装时应用文件名使用 `Itsycal.app`。构建产品名称仍为 Itsycal，以匹配现有源码与混编头。
-
-具体命令见 [WEEK_WIDGET_SETUP.md](WEEK_WIDGET_SETUP.md)。
-
-## 6. 验收与当前证据
-
-已执行并通过：
-
-- Release 主应用与嵌入扩展的完整签名构建、安装及系统时间线验证通过。
-- `bash Tests/check-week.sh`：可配置周起始（周一/周日/周三）、跨年、夏令时 23 小时日、timeline 日期、容量、日期链接、缺失覆盖、时区变化、跨夜结束时间、下周视图判定与到期条目。
-- 同一脚本运行真实 EventCenter 查询/分组方法，以内存 store 替代系统日历：交叠缓存、最后一天、跨夜、排他午夜、零时长、不重复。
-- `Tests/RenderWeek.swift` 渲染实际 `WeekView`，输出两种尺寸 × 本周/下周 × 浅色/深色样张；使用合成内容，不读取个人日历。
-- plist 语法与 diff 空白检查。
-- 完整功能改动的只读审查；更新安装的版本不匹配故障通过真实系统日志复现与恢复。
-
-SourceKit 单文件诊断缺少 Xcode 跨文件构建上下文，会报告 WeekSnapshot/WeekDates 未定义等；完整 Xcode 编译已通过，以真实 target 编译为准。
-
-尚未通过或未执行：
-
-- 最新样式的全部交互确认。用户已确认能添加，系统成功启动开发签名扩展，接收 15 条时间线，超大容器大小为 704 × 344 pt。
-- 日历后续编辑后的端到端同步；当前主应用已成功生成 ready 快照，包含完整 14 天日期桶。
-- 桌面中的实际排版、深链接点击、睡眠后切周及系统刷新延迟。
-
-完成上述真机检查后，才可宣称桌面可用版已验收。当前可评审代码、预览和离线检查已具备。
-
-## 7. Sources
+## 8. Sources
 
 - [Itsycal 上游基线](https://github.com/sfsam/Itsycal/tree/1a31050555a97e3b7aac5470ec147abfe7aa0d6a)
 - [Apple：systemExtraLarge](https://developer.apple.com/documentation/widgetkit/widgetfamily/systemextralarge)
 - [Apple：Creating a widget extension](https://developer.apple.com/documentation/widgetkit/creating-a-widget-extension)
 - [Apple：SwiftUI views for widgets](https://developer.apple.com/documentation/widgetkit/swiftui-views)
 - [Apple：Keeping a widget up to date](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
+- [Apple：Adding interactivity to widgets](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities)
 - [Apple：Configuring app groups](https://developer.apple.com/documentation/xcode/configuring-app-groups)
