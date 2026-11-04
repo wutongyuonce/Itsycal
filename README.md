@@ -4,7 +4,7 @@
 
 | 中号周视图 | 超大号周视图 | 超大号月视图 |
 | --- | --- | --- |
-| ![中号周视图小组件](docs/previews/week-medium.png) | ![超大号周视图小组件](docs/previews/week-extra-large.png) | 月视图按周排列整月日期，并显示每天的日程；当天高亮，非本月日期与过去日期变暗，空间不足时显示 `+N`。 |
+| ![中号周视图小组件](docs/previews/week-medium.png) | ![超大号周视图小组件](docs/previews/week-extra-large.png) | ![超大号月视图小组件](docs/previews/month-extra-large.png) |
 
 ## 功能
 
