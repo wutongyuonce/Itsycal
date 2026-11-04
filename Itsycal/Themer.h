@@ -26,6 +26,8 @@ extern Themer *Theme;
 @property (nonatomic, readonly) NSColor *agendaEventDateTextColor;
 @property (nonatomic, readonly) NSColor *agendaEventTextColor;
 @property (nonatomic, readonly) NSColor *agendaHoverColor;
+@property (nonatomic, readonly) NSColor *agendaOverdueTextColor;
+@property (nonatomic, readonly) NSColor *buttonTintColor;
 @property (nonatomic, readonly) NSColor *currentMonthOutlineColor;
 @property (nonatomic, readonly) NSColor *currentMonthTextColor;
 @property (nonatomic, readonly) NSColor *DOWTextColor;

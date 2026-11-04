@@ -71,12 +71,12 @@ Sizer *SizePref = nil;
     return SML_MED_LRG(6, 7, 8);
 }
 
-- (CGFloat)agendaEventLeadingMargin {
-    return SML_MED_LRG(21, 22, 24);
+- (CGFloat)agendaPopoverSectionSpacing {
+    return SML_MED_LRG(4, 6, 8);
 }
 
-- (NSString *)videoImageName {
-    return SML_MED_LRG(@"video14", @"video16", @"video18");
+- (CGFloat)agendaEventLeadingMargin {
+    return SML_MED_LRG(21, 22, 24);
 }
 
 @end

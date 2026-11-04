@@ -45,6 +45,9 @@
         kShowLocation:         @(NO),
         kSizePreference:       @0, // Small=0, Medium=1, Large=2
         kShowDaysWithNoEventsInAgenda: @(NO),
+        kShowCompletedReminders: @(YES), // Calendar's default
+        kShowOverdueReminders: @(YES),
+        kOverdueSectionExpanded: @(NO),
         kDoNotDrawOutlineAroundCurrentMonth: @(NO),
         kShowMeetingIndicator: @(NO),
         kBaselineOffset:       @0,  // Clamped to -2.0...2.0

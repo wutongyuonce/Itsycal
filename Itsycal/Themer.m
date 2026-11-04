@@ -89,6 +89,15 @@ Themer *Theme = nil;
     return [self highlightedDOWBackgroundColor];
 }
 
+- (NSColor *)agendaOverdueTextColor {
+    // Reminders shows overdue due dates in system red.
+    return NSColor.systemRedColor;
+}
+
+- (NSColor *)buttonTintColor {
+    return LightDarkColor([NSColor colorWithWhite:0.45 alpha:1], [NSColor colorWithWhite:0.55 alpha:1]);
+}
+
 - (NSColor *)currentMonthOutlineColor {
     return LightDarkColor(NSColor.labelColor, NSColor.secondaryLabelColor);
 }
@@ -149,7 +158,7 @@ Themer *Theme = nil;
 }
 
 - (NSColor *)tooltipBackgroundColor {
-    return [self mainBackgroundColor];
+    return LightDarkColor (NSColor.windowBackgroundColor, [NSColor colorWithWhite:0.17 alpha:1]);
 }
 
 - (NSColor *)weekTextColor {

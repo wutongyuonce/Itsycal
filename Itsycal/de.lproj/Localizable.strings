@@ -1,3 +1,11 @@
+/* Heading for a source's reminder lists in Settings, e.g. iCloud Reminders */
+"%@ Reminders" = "%@ – Erinnerungen";
+/* Last line of a long list of invitees in the event popover: the number of invitees not shown, e.g. 1,650 more */
+"%@ more" = "%@ weitere";
+/* Last row of a calendar day's tooltip when not all of the day's events fit: the number of events not shown, e.g. 3 more */
+"%@ more events" = "%@ weitere";
+/* VoiceOver label for the agenda's Overdue heading: Overdue, then the number of overdue reminders */
+"%@, %@" = "%@, %@";
 "1 day" = "1 Tag";
 "1 day before" = "1 Tag vorher";
 "1 day before (9 AM)" = "1 Tag vorher (9 Uhr)";
@@ -42,6 +50,8 @@ Itsycal ist nützlicher, wenn es Ereignisse aus Ihren Kalendern anzeigen kann. S
 /* Accessibility description for menu bar icon showing a grid of days */
 "Calendar grid" = "Kalenderraster";
 "Cancel" = "Abbrechen";
+/* Accessibility label for a reminder's checkbox in the event list */
+"Completed" = "Erledigt";
 "Copy" = "Kopieren";
 "Copy Meeting Link" = "Meeting-Link kopieren";
 /* Dark theme name */
@@ -87,12 +97,16 @@ Itsycal ist nützlicher, wenn es Ereignisse aus Ihren Kalendern anzeigen kann. S
 Please quit Itsycal, move it to the Applications folder, and relaunch." = "Itsycal muss aus dem Programme-Ordner laufen, um ordnungsgemäß zu funktionieren.
 
 Bitte beenden Sie Itsycal, es in den Programme-Ordner zu verschieben, und erneut starten.";
+/* Button in the event popover that joins the event's video meeting (Zoom, Teams, etc.) */
+"Join" = "Beitreten";
 "Keyboard shortcut" = "Tastaturkurzbefehl";
 /* Large text size */
 "Large" = "Groß";
 "Launch at login" = "Starte Itsycal bei der Anmeldung";
 /* Light theme name */
 "Light Theme" = "Helles Design";
+"Mark as Completed" = "Als „Erledigt“ markieren";
+"Mark as Incomplete" = "Als „Nicht erledigt“ markieren";
 /* Medium text size */
 "Medium" = "Mittel";
 "Menu Bar" = "Menüleiste";
@@ -105,7 +119,8 @@ Bitte beenden Sie Itsycal, es in den Programme-Ordner zu verschieben, und erneut
 /* Repeat ends never */
 "Never" = "Niemals";
 "New Event" = "Neues Ereignis";
-"New Event   ⌘N" = "Neues Ereignis   ⌘N";
+/* Tooltip for the calendar's button that shows the next month */
+"Next Month" = "Nächster Monat";
 "No events" = "Keine Ereignisse";
 /* Alert none
    Repeat none */
@@ -113,29 +128,42 @@ Bitte beenden Sie Itsycal, es in den Programme-Ordner zu verschieben, und erneut
 "On Date" = "Datum";
 "On day of event (9 AM)" = "Gleicher Tag (9 Uhr)";
 "Open Calendar" = "Kalender öffnen";
-"Open Calendar   ⌘O" = "Kalender öffnen   ⌘O";
 "Options" = "Optionen";
 "Outline current month" = "Aktuellen Monat umranden";
 /* Accessibility description for menu bar icon with the date in an outlined square */
 "Outlined date" = "Datum, umrandet";
-"Pin Itsycal   P" = "Itsycal soll sichtbar bleiben   P";
+/* Heading of the agenda's section of overdue reminders */
+"Overdue" = "Überfällig";
+/* Tooltip for the pin button, which keeps Itsycal's window open */
+"Pin Itsycal" = "Itsycal soll sichtbar bleiben";
+/* Tooltip for the calendar's button that shows the previous month */
+"Previous Month" = "Vorheriger Monat";
 "Quit Itsycal" = "Itsycal beenden";
+/* Heading in Settings before reminders access is granted */
+"Reminders" = "Erinnerungen";
+"Reminders access denied. You can change this setting in System Settings › Privacy & Security › Reminders" = "Zugriff auf Erinnerungen verweigert. Sie können diese Einstellung unter Systemeinstellungen › Datenschutz & Sicherheit › Erinnerungen anpassen.";
 "Repeat:" = "Wiederholen:";
 "Saturday" = "Samstag";
 "Save Event" = "Ereignis sichern";
 "Settings…" = "Einstellungen …";
 "Show calendar weeks" = "Kalenderwoche anzeigen";
+"Show completed reminders" = "Erledigte Erinnerungen anzeigen";
 "Show day of week in icon" = "Menüleistensymbol zeigt Wochentag";
 "Show days with no events" = "Tage ohne Veranstaltungen anzeigen";
 "Show event dots" = "Punkte unter Tagen mit Ereignis anzeigen";
 "Show event location" = "Veranstaltungsort anzeigen";
 "Show month in icon" = "Menüleistensymbol zeigt Monat";
+/* Settings checkbox for the agenda's Overdue section */
+"Show overdue reminders at the top" = "Überfällige Erinnerungen oben anzeigen";
+"Show Reminders…" = "Erinnerungen anzeigen …";
 /* Label for how many days the event list shows */
 "Show:" = "Anzeigen:";
 /* Accessibility label for text size control */
 "Size" = "Größe";
 /* Small text size */
 "Small" = "Klein";
+/* The space bar's name in a tooltip's keyboard shortcut, e.g. the Today button's */
+"Space" = "Leertaste";
 "Starts:" = "Von:";
 "Sunday" = "Sonntag";
 /* System theme name */
@@ -144,8 +172,12 @@ Bitte beenden Sie Itsycal, es in den Programme-Ordner zu verschieben, und erneut
 "The Calendar application could not be found." = "Die Kalender-Anwendung konnte nicht gefunden werden.";
 "There are no modifiable calendars." = "Keine beschreibbaren Kalender.";
 "Thursday" = "Donnerstag";
+/* Tooltip for the calendar's button that shows today */
+"Today" = "Heute";
 "Top right of screen" = "Oben rechts auf dem Bildschirm";
 "Tuesday" = "Dienstag";
+/* Tooltip for the pin button while Itsycal is pinned */
+"Unpin Itsycal" = "Itsycal nicht mehr sichtbar halten";
 "Use colored dots" = "Farbige Punkte verwenden";
 "Wednesday" = "Mittwoch";
 "Window position:" = "Fensterposition:";

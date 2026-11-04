@@ -15,6 +15,8 @@
 #import "DatePickerVC.h"
 #import "SBCalendar.h"
 #import "EventViewController.h"
+#import "TooltipController.h"
+#import "TooltipViewController.h"
 #import "PrefsVC.h"
 #import "PrefsGeneralVC.h"
 #import "PrefsAppearanceVC.h"
@@ -24,6 +26,7 @@
 #import "MoPopover.h"
 #import "MoVFLHelper.h"
 #import "MoUtils.h"
+#import "Themer.h"
 
 // Keys observed in NSUserDefaults for preference changes. Registered in
 // -fileNotifications and unregistered in -dealloc.
@@ -31,7 +34,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     return @[kShowEventDays, kMenuBarIconType, kShowMonthInIcon, kShowDayOfWeekInIcon,
               kShowDaysWithNoEventsInAgenda, kShowMeetingIndicator, kHideIcon,
-              kBaselineOffset, kClockFormat, kWindowPosition, kWeekStartDOW];
+              kBaselineOffset, kClockFormat, kWindowPosition, kShowCompletedReminders,
+              kShowOverdueReminders, kWeekStartDOW];
 }
 
 @implementation ViewController
@@ -44,6 +48,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     MoButton      *_btnAdd, *_btnCal, *_btnOpt, *_btnPin;
     NSWindowController    *_prefsWC;
     AgendaViewController  *_agendaVC;
+    TooltipController     *_tooltips;
+    TooltipViewController *_tooltipVC;
     NSDateFormatter       *_iconDateFormatter;
     NSTimeInterval         _inactiveTime;
     NSDictionary          *_filteredEventsForDate;
@@ -85,19 +91,23 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     NSView *v = [NSView new];
     v.translatesAutoresizingMaskIntoConstraints = NO;
     
+    // Tooltips for the calendar's days and the window's buttons
+    _tooltips = [TooltipController new];
+
     // MoCalendar
     _moCal = [MoCalendar new];
     _moCal.delegate = self;
     _moCal.target = self;
     _moCal.doubleAction = @selector(addCalendarEvent:);
+    _moCal.tooltipController = _tooltips;
     [v addSubview:_moCal];
     
     // Convenience function to config buttons.
-    MoButton* (^btn)(NSString*, NSString*, NSString*, SEL) = ^MoButton* (NSString *imageName, NSString *tip, NSString *key, SEL action) {
+    MoButton* (^btn)(NSString*, NSString*, SEL) = ^MoButton* (NSString *imageName, NSString *key, SEL action) {
         MoButton *btn = [MoButton new];
         [btn setTarget:self];
         [btn setAction:action];
-        [btn setToolTip:tip];
+        [btn setContentTintColor:Theme.buttonTintColor];
         [btn setImage:[NSImage imageNamed:imageName]];
         [btn setKeyEquivalent:key];
         [btn setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
@@ -106,13 +116,30 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     };
 
     // Add event, Calendar.app, and Options buttons
-    _btnAdd = btn(@"btnAdd", NSLocalizedString(@"New Event   ⌘N", @""), @"n", @selector(addCalendarEvent:));
-    _btnCal = btn(@"btnCal", NSLocalizedString(@"Open Calendar   ⌘O", @""), @"o", @selector(showCalendarApp:));
-    _btnOpt = btn(@"btnOpt", NSLocalizedString(@"Options", @""), @"", @selector(showOptionsMenu:));
-    _btnPin = btn(@"btnPin", NSLocalizedString(@"Pin Itsycal   P", @""), @"p", @selector(pin:));
+    _btnAdd = btn(@"btnAdd", @"n", @selector(addCalendarEvent:));
+    _btnCal = btn(@"btnCal", @"o", @selector(showCalendarApp:));
+    _btnOpt = btn(@"btnOpt", @"", @selector(showOptionsMenu:));
+    _btnPin = btn(@"btnPin", @"p", @selector(pin:));
     _btnPin.keyEquivalentModifierMask = 0;
     _btnPin.alternateImage = [NSImage imageNamed:@"btnPinAlt"];
     [_btnPin setButtonType:NSButtonTypeToggle];
+
+    // The buttons' tooltips. Their badges show the key equivalents.
+    [_tooltips addTooltipToView:_btnAdd label:^NSString *{
+        return NSLocalizedString(@"New Event", @"");
+    } shortcut:nil];
+    [_tooltips addTooltipToView:_btnCal label:^NSString *{
+        return NSLocalizedString(@"Open Calendar", @"");
+    } shortcut:nil];
+    [_tooltips addTooltipToView:_btnOpt label:^NSString *{
+        return NSLocalizedString(@"Options", @"");
+    } shortcut:nil];
+    __weak MoButton *btnPin = _btnPin;
+    [_tooltips addTooltipToView:_btnPin label:^NSString *{
+        return btnPin.state == NSControlStateValueOn
+            ? NSLocalizedString(@"Unpin Itsycal", @"Tooltip for the pin button while Itsycal is pinned")
+            : NSLocalizedString(@"Pin Itsycal", @"Tooltip for the pin button, which keeps Itsycal's window open");
+    } shortcut:nil];
     
     // Agenda
     _agendaVC = [AgendaViewController new];
@@ -153,9 +180,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     
     _ec = [[EventCenter alloc] initWithCalendar:_nsCal delegate:self];
     
-    TooltipViewController *tooltipVC = [TooltipViewController new];
-    tooltipVC.tooltipDelegate = self;
-    _moCal.tooltipVC = tooltipVC;
+    _tooltipVC = [TooltipViewController new];
+    _tooltipVC.nsCal = _nsCal;
 
     [self updateTimer];
     
@@ -262,11 +288,13 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         return;
     }
     
-    // Confirm that there are calendars which can be modified.
+    // Confirm that there are calendars which can be modified
+    // and hold events (not just reminder lists).
     BOOL atLeastOneModifiableCalendar = NO;
     for (id obj in [_ec sourcesAndCalendars]) {
         if ([obj isKindOfClass:[CalendarInfo class]] && 
-            ((CalendarInfo *)obj).calendar.allowsContentModifications) {
+            ((CalendarInfo *)obj).calendar.allowsContentModifications &&
+            (((CalendarInfo *)obj).calendar.allowedEntityTypes & EKEntityMaskEvent)) {
             atLeastOneModifiableCalendar = YES;
             break;
         }
@@ -293,6 +321,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     eventVC.cal = _nsCal;
     eventVC.title = @"";
     eventVC.calSelectedDate = MakeNSDateWithDate(_moCal.selectedDate, _nsCal);
+    eventVC.eventUndoManager = self.itsycalWindow.undoManager;
     
     _newEventPopover.contentViewController = eventVC;
     [_newEventPopover showRelativeToRect:_btnAdd.bounds ofView:_btnAdd preferredEdge:NSRectEdgeMinX];
@@ -969,6 +998,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     [[NSApplication sharedApplication] unhideWithoutActivation];
     [self positionItsycalWindowForInitialPresentation:YES];
+    [_agendaVC scrollToTop];
     [self.itsycalWindow makeKeyAndOrderFront:self];
     [self.itsycalWindow makeFirstResponder:_moCal];
     _inactiveTime = 0;
@@ -976,6 +1006,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)hideItsycalWindow
 {
+    [_tooltips hideImmediately];
     [self.itsycalWindow orderOut:self];
     [_newEventPopover close];
     _inactiveTime = MonotonicClockTime();
@@ -1058,6 +1089,11 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     }
     else {
         EventInfo *info = _agendaVC.events[row];
+        if (info.reminder) {
+            MoDate dueDate = MakeDateWithNSDate(info.dueDate, _nsCal);
+            [_moCal highlightCellsFromDate:dueDate toDate:dueDate withColor:info.reminder.calendar.color];
+            return;
+        }
         MoDate startDate = MakeDateWithNSDate(info.event.startDate, _nsCal);
         MoDate endDate   = MakeDateWithNSDate(info.event.endDate,   _nsCal);
         // Fixup for endDates that are at midnight
@@ -1073,16 +1109,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
     
     // Make a string showing the event title and duration.
-    static NSDateIntervalFormatter *durationFormatter = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        durationFormatter = [NSDateIntervalFormatter new];
-        durationFormatter.dateStyle = NSDateIntervalFormatterMediumStyle;
-    });
-    durationFormatter.locale = DateIntervalFormatterLocale();
-    durationFormatter.timeStyle = event.isAllDay ? NSDateIntervalFormatterNoStyle : NSDateIntervalFormatterShortStyle;
     NSString *title = event.title == nil ? @"" : event.title;
-    NSString *duration = [durationFormatter stringFromDate:event.startDate toDate:event.endDate];
+    NSString *duration = DateRangeString(event.startDate, event.endDate, event.isAllDay);
     NSString *eventString = [NSString stringWithFormat:@"%@\n%@", title, duration];
 
     BOOL eventRepeats = event.hasRecurrenceRules;
@@ -1118,6 +1146,17 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     }
 }
 
+- (void)agendaWantsToSetReminder:(EKReminder *)reminder completed:(BOOL)completed
+{
+    // Check off or uncheck. Undo is registered with the window's
+    // undo manager, like new events, so ⌘Z works.
+    NSError *error = nil;
+    BOOL result = [_ec setReminder:reminder completed:completed undoManager:self.itsycalWindow.undoManager error:&error];
+    if (result == NO && error != nil) {
+        [[NSAlert alertWithError:error] runModal];
+    }
+}
+
 - (void)agendaShowCalendarAppAtDate:(NSDate *)date
 {
     [self showCalendarAppAtDate:date dayView:YES];
@@ -1145,6 +1184,13 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [self updateAgenda];
 }
 
+- (id<TooltipContent>)tooltipContentForDate:(MoDate)date
+{
+    NSArray *events = [self eventsForDate:date];
+    if (events.count == 0) return nil;
+    return [_tooltipVC tooltipContentForEvents:events];
+}
+
 - (NSArray<NSColor *> *)dotColorsForDate:(MoDate)date useColor:(BOOL)useColor
 {
     NSArray<EventInfo *> *events = [self eventsForDate:date];
@@ -1152,7 +1198,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     if (!useColor) return @[];
     NSMutableOrderedSet *colors = [NSMutableOrderedSet new];
     for (EventInfo *eventInfo in events) {
-        [colors addObject:eventInfo.event.calendar.color];
+        [colors addObject:eventInfo.item.calendar.color];
         if (colors.count == 3) break;
     }
     switch (colors.count) {
@@ -1190,11 +1236,14 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
                 // annotated so AgendaViewController can handle them
                 // appropriately. For the date, we set an associated object.
                 // For the event we give it a new EventInfo. Importantly, the
-                // EventInfo's `event` property will be nil and we will use
-                // this fact in AgendaViewController.
+                // EventInfo's `event` and `reminder` properties will be nil
+                // and we will use this fact in AgendaViewController. Its
+                // `date` is set so double-clicking it opens this day.
                 [nsDate setHasNoEvents:YES];
                 [datesAndEvents addObject:nsDate];
-                [datesAndEvents addObject:[EventInfo new]];
+                EventInfo *noEvents = [EventInfo new];
+                noEvents.date = nsDate;
+                [datesAndEvents addObject:noEvents];
             }
         }
         date = AddDaysToDate(1, date);
@@ -1210,7 +1259,9 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     //os_log(OS_LOG_DEFAULT, "%s", __FUNCTION__);
     _filteredEventsForDate = [_ec filteredEventsForDate];
     [_moCal reloadData];
-    [self updateAgenda];
+    // Only the data changed. While the user is looking, keep their place.
+    // (The agenda scrolls to the top when the window opens.)
+    [self updateAgendaKeepingScrollPosition:self.itsycalWindow.isVisible];
 }
 
 - (MoDate)fetchStartDate
@@ -1237,10 +1288,52 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)updateAgenda
 {
+    [self updateAgendaKeepingScrollPosition:NO];
+}
+
+// Keep the scroll position when only the data changed, so the user
+// doesn't lose their place, e.g. checking off reminders in a long list.
+// Otherwise (a new date, a setting) start from the top.
+- (void)updateAgendaKeepingScrollPosition:(BOOL)keepScrollPosition
+{
     NSInteger days = _showWidgetDay ? 1 : [self daysToShowInAgenda];
-    _agendaVC.events = [self datesAndEventsForDate:_moCal.selectedDate days:days];
-    [_agendaVC reloadData];
+    NSArray *datesAndEvents = [self datesAndEventsForDate:_moCal.selectedDate days:days];
+    _agendaVC.events = [[self overdueRowsForAgendaDays:days] arrayByAddingObjectsFromArray:datesAndEvents];
+    if (keepScrollPosition) {
+        [_agendaVC reloadDataKeepingScrollPosition];
+    }
+    else {
+        [_agendaVC reloadData];
+    }
     [self showMeetingIndicatorIfNecessary];
+}
+
+// The Overdue section at the top of the agenda: a heading with the
+// number of reminders due before today and, if the user expanded it,
+// those reminders, most recent day first. It's shown only for today
+// (it's about now) and if the agenda shows any days. It starts
+// collapsed, and remembers whether it's expanded.
+- (NSArray *)overdueRowsForAgendaDays:(NSInteger)days
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (days == 0 ||
+        CompareDates(_moCal.selectedDate, [self todayDate]) != 0 ||
+        ![defaults boolForKey:kShowOverdueReminders]) {
+        return @[];
+    }
+    NSArray *overdue = [_ec remindersDueBeforeDate:[_nsCal startOfDayForDate:[NSDate new]]];
+    if (overdue.count == 0) return @[];
+    AgendaOverdueHeading *heading = [AgendaOverdueHeading new];
+    heading.count = overdue.count;
+    heading.expanded = [defaults boolForKey:kOverdueSectionExpanded];
+    return heading.expanded ? [@[heading] arrayByAddingObjectsFromArray:overdue] : @[heading];
+}
+
+- (void)agendaWantsToToggleOverdueSection
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:![defaults boolForKey:kOverdueSectionExpanded] forKey:kOverdueSectionExpanded];
+    [self updateAgenda];
 }
 
 #pragma mark -
@@ -1264,6 +1357,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     BOOL show = NO;
     NSArray *todayEvents = [self eventsForDate:[self todayDate]];
     for (EventInfo *info in todayEvents) {
+        // Only events have meetings.
+        if (info.event == nil) continue;
         // Show meeting indicator 15 minutes prior to event start until end.
         NSDate *fifteenMinutesPrior = MeetingJoinableThreshold(info.event, _nsCal);
         if (info.meetingURL && !info.event.isAllDay
@@ -1456,10 +1551,16 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     token = [[NSNotificationCenter defaultCenter] addObserverForName:NSCalendarDayChangedNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
+        MoDate selectedDate = strongSelf->_moCal.selectedDate;
         [strongSelf resetCalendarToToday];
         [strongSelf->_ec refetchAll];
         [strongSelf updateMenubarIcon];
         [strongSelf updateTimer];
+        // Reminders due yesterday are now overdue. Changing the selected
+        // date rebuilds the agenda; if it didn't change, rebuild it here.
+        if (CompareDates(selectedDate, strongSelf->_moCal.selectedDate) == 0) {
+            [strongSelf updateAgenda];
+        }
     }];
     [_notificationTokens addObject:token];
 
@@ -1521,7 +1622,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context
 {
     if ([keyPath isEqualToString:kShowEventDays] ||
-        [keyPath isEqualToString:kShowDaysWithNoEventsInAgenda]) {
+        [keyPath isEqualToString:kShowDaysWithNoEventsInAgenda] ||
+        [keyPath isEqualToString:kShowOverdueReminders]) {
         _showWidgetDay = NO;
         [self updateAgenda];
     }
@@ -1535,6 +1637,10 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     }
     else if ([keyPath isEqualToString:kClockFormat]) {
         [self clockFormatDidChange];
+    }
+    else if ([keyPath isEqualToString:kShowCompletedReminders]) {
+        // Completed reminders are only fetched when shown.
+        [_ec refetchAll];
     }
     else if ([keyPath isEqualToString:kWindowPosition]) {
         // Move Itsycal now if it is showing (e.g., when pinned).

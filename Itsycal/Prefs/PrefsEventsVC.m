@@ -10,6 +10,7 @@
 
 static NSString * const kSourceCellId = @"SourceCell";
 static NSString * const kCalendarCellId = @"CalendarCell";
+static NSString * const kButtonCellId = @"ButtonCell";
 
 // Cell views for the Sources and Calendars table view.
 @interface SourceCellView : NSView
@@ -17,6 +18,9 @@ static NSString * const kCalendarCellId = @"CalendarCell";
 @end
 @interface CalendarCellView : NSView
 @property (nonatomic) NSButton *checkbox;
+@end
+@interface ButtonCellView : NSView
+@property (nonatomic) NSButton *button;
 @end
 
 #pragma mark -
@@ -33,7 +37,10 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     NSPopUpButton *_agendaDaysPopup;
     NSButton *_showLocation;
     NSButton *_showDaysWithoutEvents;
+    NSButton *_showCompletedReminders;
+    NSButton *_showOverdueReminders;
     NSArray *_sourcesAndCalendars;
+    EKAuthorizationStatus _remindersStatus;
 }
 
 #pragma mark -
@@ -99,14 +106,18 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     // Checkboxes
     _showLocation = chkbx(NSLocalizedString(@"Show event location", @""));
     _showDaysWithoutEvents = chkbx(NSLocalizedString(@"Show days with no events", @""));
+    _showCompletedReminders = chkbx(NSLocalizedString(@"Show completed reminders", @""));
+    _showOverdueReminders = chkbx(NSLocalizedString(@"Show overdue reminders at the top", @"Settings checkbox for the agenda's Overdue section"));
 
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @20} views:NSDictionaryOfVariableBindings(eventListLabel, separator, tvContainer, _agendaDaysLabel, _agendaDaysPopup, _showLocation, _showDaysWithoutEvents)];
-    [vfl :@"V:|-m-[tvContainer(170)]-m-[eventListLabel]-10-[_agendaDaysPopup]-m-[_showLocation]-[_showDaysWithoutEvents]-m-|"];
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @20} views:NSDictionaryOfVariableBindings(eventListLabel, separator, tvContainer, _agendaDaysLabel, _agendaDaysPopup, _showLocation, _showDaysWithoutEvents, _showCompletedReminders, _showOverdueReminders)];
+    [vfl :@"V:|-m-[tvContainer(170)]-m-[eventListLabel]-10-[_agendaDaysPopup]-m-[_showLocation]-[_showDaysWithoutEvents]-[_showCompletedReminders]-[_showOverdueReminders]-m-|"];
     [vfl :@"H:|-m-[eventListLabel]-[separator]-m-|" :NSLayoutFormatAlignAllCenterY];
     [vfl :@"H:|-m-[tvContainer]-m-|"];
     [vfl :@"H:|-m-[_agendaDaysLabel]-[_agendaDaysPopup]-(>=m)-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[_showLocation]-(>=m)-|"];
     [vfl :@"H:|-m-[_showDaysWithoutEvents]-(>=m)-|"];
+    [vfl :@"H:|-m-[_showCompletedReminders]-(>=m)-|"];
+    [vfl :@"H:|-m-[_showOverdueReminders]-(>=m)-|"];
 
     // Bindings for agenda days
     [_agendaDaysPopup bind:@"selectedIndex" toObject:[NSUserDefaultsController sharedUserDefaultsController] withKeyPath:[@"values." stringByAppendingString:kShowEventDays] options:@{NSContinuouslyUpdatesValueBindingOption: @(YES)}];
@@ -117,6 +128,12 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     // Bindings for showDaysWithoutEvents preference
     [_showDaysWithoutEvents bind:@"value" toObject:[NSUserDefaultsController sharedUserDefaultsController] withKeyPath:[@"values." stringByAppendingString:kShowDaysWithNoEventsInAgenda] options:@{NSContinuouslyUpdatesValueBindingOption: @(YES)}];
 
+    // Bindings for showCompletedReminders preference
+    [_showCompletedReminders bind:@"value" toObject:[NSUserDefaultsController sharedUserDefaultsController] withKeyPath:[@"values." stringByAppendingString:kShowCompletedReminders] options:@{NSContinuouslyUpdatesValueBindingOption: @(YES)}];
+
+    // Bindings for showOverdueReminders preference
+    [_showOverdueReminders bind:@"value" toObject:[NSUserDefaultsController sharedUserDefaultsController] withKeyPath:[@"values." stringByAppendingString:kShowOverdueReminders] options:@{NSContinuouslyUpdatesValueBindingOption: @(YES)}];
+
     self.view = v;
 }
 
@@ -125,12 +142,22 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     [super viewWillAppear];
 
     _sourcesAndCalendars = [self.ec sourcesAndCalendars];
+    _remindersStatus = self.ec.remindersAuthorizationStatus;
+    [self updateControlsForAccess];
+}
 
-    _calendarsTV.enabled = self.ec.calendarAccessGranted;
-    _agendaDaysLabel.textColor = self.ec.calendarAccessGranted ? NSColor.labelColor : NSColor.disabledControlTextColor;
-    _agendaDaysPopup.enabled = self.ec.calendarAccessGranted;
-    _showLocation.enabled = self.ec.calendarAccessGranted;
-    _showDaysWithoutEvents.enabled = self.ec.calendarAccessGranted;
+- (void)updateControlsForAccess
+{
+    // The event list shows events and reminders, so its options apply
+    // if the user granted either kind of access.
+    BOOL remindersGranted = _remindersStatus == EKAuthorizationStatusFullAccess;
+    BOOL listShowsSomething = self.ec.calendarAccessGranted || remindersGranted;
+    _agendaDaysLabel.textColor = listShowsSomething ? NSColor.labelColor : NSColor.disabledControlTextColor;
+    _agendaDaysPopup.enabled = listShowsSomething;
+    _showLocation.enabled = listShowsSomething;
+    _showDaysWithoutEvents.enabled = listShowsSomething;
+    _showCompletedReminders.enabled = remindersGranted;
+    _showOverdueReminders.enabled = remindersGranted;
 }
 
 - (void)viewDidAppear
@@ -149,9 +176,9 @@ static NSString * const kCalendarCellId = @"CalendarCell";
 
 - (void)calendarClicked:(NSButton *)checkbox
 {
-    NSInteger row = checkbox.tag;
+    NSInteger index = checkbox.tag; // in _sourcesAndCalendars
     BOOL selected = checkbox.state == NSControlStateValueOn;
-    CalendarInfo *info = _sourcesAndCalendars[row];
+    CalendarInfo *info = _sourcesAndCalendars[index];
     NSString *calendarIdentifier = info.calendar.calendarIdentifier;
     [self.ec updateSelectedCalendarsForIdentifier:calendarIdentifier selected:selected];
     
@@ -159,18 +186,85 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     [_calendarsTV reloadData];
 }
 
+#pragma mark -
+#pragma mark Reminders access
+
+// The table's rows: if calendar access is denied, first a message about
+// it (where calendars would be). Then the sources and calendars, and
+// the reminder lists if reminders access is granted. Until it is, two
+// rows follow: a Reminders heading, then a Show Reminders button (not
+// asked yet) or a message (access denied). Reminders don't need
+// calendar access, so these rows are there either way.
+- (NSInteger)calendarsDeniedRowCount
+{
+    return self.ec.calendarAccessGranted ? 0 : 1;
+}
+
+- (BOOL)isCalendarsDeniedRow:(NSInteger)row
+{
+    return row < self.calendarsDeniedRowCount;
+}
+
+- (NSInteger)indexInSourcesAndCalendarsForRow:(NSInteger)row
+{
+    return row - self.calendarsDeniedRowCount;
+}
+
+- (BOOL)showsRemindersAccessRows
+{
+    return _remindersStatus != EKAuthorizationStatusFullAccess;
+}
+
+- (BOOL)isRemindersHeadingRow:(NSInteger)row
+{
+    return self.showsRemindersAccessRows && [self indexInSourcesAndCalendarsForRow:row] == _sourcesAndCalendars.count;
+}
+
+- (BOOL)isRemindersAccessRow:(NSInteger)row
+{
+    return self.showsRemindersAccessRows && [self indexInSourcesAndCalendarsForRow:row] == _sourcesAndCalendars.count + 1;
+}
+
+- (NSString *)calendarsDeniedMessage
+{
+    return NSLocalizedString(@"Calendar access denied.\n\nItsycal is more useful when it can display events from your calendars. You can change this setting in System Settings › Privacy & Security › Calendars", @"");
+}
+
+- (NSString *)remindersDeniedMessage
+{
+    return NSLocalizedString(@"Reminders access denied. You can change this setting in System Settings › Privacy & Security › Reminders", @"");
+}
+
+- (void)showRemindersClicked:(id)sender
+{
+    [self.ec requestRemindersAccessWithCompletion:^{
+        self->_remindersStatus = self.ec.remindersAuthorizationStatus;
+        [self updateControlsForAccess];
+        self->_sourcesAndCalendars = [self.ec sourcesAndCalendars];
+        [self->_calendarsTV reloadData];
+        // Show the reminder lists (or the denied message) at the end.
+        [self->_calendarsTV scrollRowToVisible:self->_calendarsTV.numberOfRows - 1];
+    }];
+}
+
+#pragma mark -
+#pragma mark TableView delegate/datasource
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-    // If access is denied, return 1 row for a message about granting access.
-    return self.ec.calendarAccessGranted ? [_sourcesAndCalendars count] : 1;
+    // See -calendarsDeniedRowCount for the rows.
+    return self.calendarsDeniedRowCount + [_sourcesAndCalendars count] + (self.showsRemindersAccessRows ? 2 : 0);
 }
 
 - (CGFloat)tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row
 {
-    // If access is denied, row height is the height of the tableview so we can
-    // show some helpful message text.
-    if (!self.ec.calendarAccessGranted) return 170.0;
+    // The Show Reminders button is a regular push button. Measure
+    // its cell once.
+    if ([self isRemindersAccessRow:row] && _remindersStatus == EKAuthorizationStatusNotDetermined) {
+        static CGFloat buttonRowHeight = 0;
+        if (buttonRowHeight == 0) buttonRowHeight = [ButtonCellView new].fittingSize.height;
+        return buttonRowHeight;
+    }
 
     // Calculate the height of either the source title or the calendar title.
     // In the case of the source title, the available width is the full width
@@ -179,18 +273,27 @@ static NSString * const kCalendarCellId = @"CalendarCell";
     // occupied by the checkbox. We also add room for top and bottom margins
     // after the text height has been calculated.
 
-    id obj = _sourcesAndCalendars[row];
     CGFloat tvWidth = NSWidth(_calendarsTV.frame);
     CGFloat textWidth = tvWidth - 4 - 4; // minus left & right margins
     NSString *str;
+    NSFont *font = [NSFont boldSystemFontOfSize:12];
 
-    if ([obj isKindOfClass:[CalendarInfo class]]) {
+    id obj = nil;
+    if ([self isCalendarsDeniedRow:row]) {
+        str = [self calendarsDeniedMessage];
+        font = [NSFont systemFontOfSize:12];
+    } else if ([self isRemindersHeadingRow:row]) {
+        str = NSLocalizedString(@"Reminders", @"Heading in Settings before reminders access is granted");
+    } else if ([self isRemindersAccessRow:row]) {
+        str = [self remindersDeniedMessage];
+        font = [NSFont systemFontOfSize:12];
+    } else if ([(obj = _sourcesAndCalendars[[self indexInSourcesAndCalendarsForRow:row]]) isKindOfClass:[CalendarInfo class]]) {
         str = ((CalendarInfo *)obj).calendar.title;
         textWidth -= 20.0; // account for checkbox
     } else {
         str = (NSString *)obj; // source title
     }
-    NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:str attributes:@{NSFontAttributeName: [NSFont boldSystemFontOfSize:12]}];
+    NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:str attributes:@{NSFontAttributeName: font}];
     CGRect attrStrRect = [attrStr boundingRectWithSize:CGSizeMake(textWidth, 10000) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
     return NSHeight(attrStrRect) + 4 + 4; // plus top & bottom margins
 }
@@ -204,23 +307,50 @@ static NSString * const kCalendarCellId = @"CalendarCell";
 {
     // If calendar access was denied, show a helpful message. We repurpose the
     // SourceCellView since it is just a textfield with nice margins.
-    if (!self.ec.calendarAccessGranted) {
+    if ([self isCalendarsDeniedRow:row]) {
         SourceCellView *message = [tableView makeViewWithIdentifier:kSourceCellId owner:self];
         if (!message) message = [SourceCellView new];
         message.textField.lineBreakMode = NSLineBreakByWordWrapping;
         message.textField.font = [NSFont systemFontOfSize:12];
-        message.textField.stringValue = NSLocalizedString(@"Calendar access denied.\n\nItsycal is more useful when it can display events from your calendars. You can change this setting in System Settings › Privacy & Security › Calendars", @"");
+        message.textField.stringValue = [self calendarsDeniedMessage];
         return message;
     }
     
+    // Before reminders access is granted, show a heading and then
+    // a Show Reminders button, or a message if access was denied.
+    if ([self isRemindersHeadingRow:row]) {
+        SourceCellView *heading = [tableView makeViewWithIdentifier:kSourceCellId owner:self];
+        if (!heading) heading = [SourceCellView new];
+        heading.textField.font = [NSFont boldSystemFontOfSize:12];
+        heading.textField.stringValue = NSLocalizedString(@"Reminders", @"Heading in Settings before reminders access is granted");
+        return heading;
+    }
+    if ([self isRemindersAccessRow:row]) {
+        if (_remindersStatus == EKAuthorizationStatusNotDetermined) {
+            ButtonCellView *cell = [tableView makeViewWithIdentifier:kButtonCellId owner:self];
+            if (!cell) cell = [ButtonCellView new];
+            cell.button.title = NSLocalizedString(@"Show Reminders…", @"");
+            cell.button.target = self;
+            cell.button.action = @selector(showRemindersClicked:);
+            return cell;
+        }
+        SourceCellView *message = [tableView makeViewWithIdentifier:kSourceCellId owner:self];
+        if (!message) message = [SourceCellView new];
+        message.textField.font = [NSFont systemFontOfSize:12];
+        message.textField.stringValue = [self remindersDeniedMessage];
+        return message;
+    }
+
     // Show a list of sources and calendars with checkboxes.
     
     NSView *v = nil;
-    id obj = _sourcesAndCalendars[row];
+    NSInteger index = [self indexInSourcesAndCalendarsForRow:row];
+    id obj = _sourcesAndCalendars[index];
     
     if ([obj isKindOfClass:[NSString class]]) {
         SourceCellView *source = [tableView makeViewWithIdentifier:kSourceCellId owner:self];
         if (!source) source = [SourceCellView new];
+        source.textField.font = [NSFont boldSystemFontOfSize:12];
         source.textField.stringValue = (NSString *)obj;
         v = source;
     }
@@ -231,7 +361,7 @@ static NSString * const kCalendarCellId = @"CalendarCell";
         calendar.checkbox.target = self;
         calendar.checkbox.action = @selector(calendarClicked:);
         calendar.checkbox.state = info.selected == NSControlStateValueOn;
-        calendar.checkbox.tag = row;
+        calendar.checkbox.tag = index; // see -calendarClicked:
         calendar.checkbox.attributedTitle = [[NSAttributedString alloc] initWithString:info.calendar.title attributes:@{NSForegroundColorAttributeName: info.calendar.color, NSFontAttributeName: [NSFont boldSystemFontOfSize:12]}];
         v = calendar;
     }
@@ -286,6 +416,28 @@ static NSString * const kCalendarCellId = @"CalendarCell";
         [self addSubview:_checkbox];
         [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|-4-[_checkbox]-4-|" options:0 metrics:nil views:@{@"_checkbox": _checkbox}]];
         [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-4-[_checkbox]" options:0 metrics:nil views:@{@"_checkbox": _checkbox}]];
+    }
+    return self;
+}
+
+@end
+
+// =========================================================================
+// ButtonCellView
+// =========================================================================
+
+@implementation ButtonCellView
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        self.identifier = kButtonCellId;
+        _button = [NSButton buttonWithTitle:NSLocalizedString(@"Show Reminders…", @"") target:nil action:nil];
+        _button.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:_button];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|-4-[_button]-(>=4)-|" options:0 metrics:nil views:@{@"_button": _button}]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-4-[_button]-4-|" options:0 metrics:nil views:@{@"_button": _button}]];
     }
     return self;
 }

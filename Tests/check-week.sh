@@ -6,7 +6,7 @@ trap 'rm -rf "$check_dir"' EXIT
 swiftc ItsycalWidgets/WeekModel.swift ItsycalWidgets/WeekPreview.swift Tests/WeekModelCheck.swift -o "$check_dir/model"
 "$check_dir/model"
 clang -fobjc-arc -fmodules -I Tests/Stubs -I Itsycal -I Itsycal/MoCode \
-  Itsycal/EventCenter.m Itsycal/WeekSnapshot.m Itsycal/Itsycal.m Itsycal/MoCode/MoDate.m Tests/EventCenterCheck.m \
+  Itsycal/EventCenter.m Itsycal/ReminderRecurrence.m Itsycal/WeekSnapshot.m Itsycal/Itsycal.m Itsycal/MoCode/MoDate.m Tests/EventCenterCheck.m \
   -framework AppKit -framework EventKit -o "$check_dir/events"
 python3 Tests/install-check.py
 TZ=Asia/Shanghai "$check_dir/events" # Expected dates are written in +08:00.

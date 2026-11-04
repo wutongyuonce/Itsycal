@@ -51,16 +51,19 @@ void PublishWeekSnapshot(NSDictionary *eventsForDate, EventCenter *center,
              date = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:date options:0]) {
             NSMutableArray *items = [NSMutableArray new];
             for (EventInfo *info in eventsForDate[date]) {
-                EKEvent *event = info.event;
-                NSColor *color = [[NSColor colorWithCGColor:event.calendar.CGColor] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                // Events and reminders share these EventInfo properties. The
+                // widget has no checkboxes, so it leaves out completed reminders.
+                if (info.reminder.isCompleted) continue;
+                EKCalendarItem *item = info.item;
+                NSColor *color = [[NSColor colorWithCGColor:item.calendar.CGColor] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
                 [items addObject:@{
-                    @"id": [NSString stringWithFormat:@"%@/%.0f", event.eventIdentifier ?: @"", event.startDate.timeIntervalSince1970],
-                    @"title": event.title.length ? event.title : @"无标题日程",
-                    @"start": @(event.startDate.timeIntervalSince1970),
-                    @"end": @(event.endDate.timeIntervalSince1970),
-                    @"allDay": @(event.allDay),
+                    @"id": [NSString stringWithFormat:@"%@/%.0f", item.calendarItemIdentifier ?: @"", info.startDate.timeIntervalSince1970],
+                    @"title": item.title.length ? item.title : @"无标题日程",
+                    @"start": @(info.startDate.timeIntervalSince1970),
+                    @"end": @(info.endDate.timeIntervalSince1970),
+                    @"allDay": @(info.isRealAllDay),
                     @"spansDay": @(info.isAllDay),
-                    @"startsHere": @([calendar isDate:date inSameDayAsDate:event.startDate]),
+                    @"startsHere": @([calendar isDate:date inSameDayAsDate:info.startDate]),
                     @"endsHere": @(info.isEndDate),
                     @"continues": @(info.isStartDate),
                     @"color": @[@(color ? color.redComponent : 0.3), @(color ? color.greenComponent : 0.5), @(color ? color.blueComponent : 0.8)]

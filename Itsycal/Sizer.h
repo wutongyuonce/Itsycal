@@ -41,7 +41,7 @@ extern Sizer *SizePref;
 @property (nonatomic, readonly) CGFloat tooltipWidth;
 @property (nonatomic, readonly) CGFloat agendaEventLeadingMargin;
 @property (nonatomic, readonly) CGFloat agendaDotWidth;
-@property (nonatomic, readonly) NSString *videoImageName;
+@property (nonatomic, readonly) CGFloat agendaPopoverSectionSpacing;
 
 + (instancetype)shared;
 

@@ -208,8 +208,7 @@ const NSTimeInterval kAlertRegularRelativeOffsets[kAlertRegularNumOffsets] = {
     _notesScrollView.borderType = NSNoBorder;
     _notesScrollView.verticalScrollElasticity = NSScrollElasticityNone;
     _notesScrollView.drawsBackground = NO;
-    _notesScrollView.hasVerticalScroller = YES;
-    _notesScrollView.verticalScroller = [ThemedScroller new];
+    _notesScrollView.hasVerticalScroller = NO; // see -textDidChange:
     [v addSubview:_notesScrollView];
 
     NSSize noteContentSize = _notesScrollView.contentSize;
@@ -363,8 +362,10 @@ const NSTimeInterval kAlertRegularRelativeOffsets[kAlertRegularNumOffsets] = {
     for (id obj in sourcesAndCalendars) {
         if ([obj isKindOfClass:[NSString class]]) continue; // Skip Sources
         CalendarInfo *calInfo = obj;
-        // Only add menu items for calendars that can be modified.
-        if (calInfo.calendar.allowsContentModifications) {
+        // Only add menu items for calendars that can be modified
+        // and hold events (not reminder lists).
+        if (calInfo.calendar.allowsContentModifications &&
+            (calInfo.calendar.allowedEntityTypes & EKEntityMaskEvent)) {
             // Add a Source item to the menu if necessary.
             if (![calInfo.calendar.source isEqualTo:currentSource]) {
                 if (_calPopup.menu.itemArray.count != 0) {
@@ -609,7 +610,7 @@ const NSTimeInterval kAlertRegularRelativeOffsets[kAlertRegularNumOffsets] = {
     
     // Commit the event.
     NSError *error = NULL;
-    BOOL saved = [self.ec saveEvent:event error:&error];
+    BOOL saved = [self.ec saveNewEvent:event undoManager:self.eventUndoManager error:&error];
     if (saved == NO && error != nil) {
         [[NSAlert alertWithError:error] runModal];
     }
@@ -663,12 +664,15 @@ const NSTimeInterval kAlertRegularRelativeOffsets[kAlertRegularNumOffsets] = {
         idx = NSMaxRange(lineRange);
     }
     
-    // Disable elasticity if all lines are visible
-    if (numberOfLines <= maxVisibleLines) {
-        _notesScrollView.verticalScrollElasticity = NSScrollElasticityNone;
-    }
-    else {
-        _notesScrollView.verticalScrollElasticity = NSScrollElasticityAutomatic;
+    // Elasticity and a scroller only if not all lines are visible.
+    // Not autohiding: it would show the scroller for a moment each
+    // time _notes grows, before _notesScrollView does. The scroller
+    // changes the text's width, so measure again when it changes.
+    BOOL scrolls = numberOfLines > maxVisibleLines;
+    _notesScrollView.verticalScrollElasticity = scrolls ? NSScrollElasticityAutomatic : NSScrollElasticityNone;
+    if (_notesScrollView.hasVerticalScroller != scrolls) {
+        _notesScrollView.hasVerticalScroller = scrolls;
+        [self textDidChange:notification];
     }
 }
 
