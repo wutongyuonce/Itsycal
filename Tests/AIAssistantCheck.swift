@@ -206,5 +206,62 @@ enum AIAssistantCheck {
             didThrow = msg.contains("boom")
         }
         assert(didThrow, "JS exception must surface as AICodeModeError.scriptException")
+
+        // Multi-session persistence + listSessions / readSession sandbox tools + hasMeaningfulChanges check.
+        let tempSessionFile = FileManager.default.temporaryDirectory.appendingPathComponent("ai-session-test-\(UUID().uuidString).json")
+        AISessionStore.overrideFileURL = tempSessionFile
+        defer {
+            AISessionStore.overrideFileURL = nil
+            try? FileManager.default.removeItem(at: tempSessionFile)
+        }
+
+        AISessionStore.save(AISessionSnapshot(
+            history: [
+                AIChatMessage(role: .user, content: "帮我安排下周二下午三点健身"),
+                AIChatMessage(role: .assistant, content: "✅ 已确认执行：「健身」（共 1 项）"),
+            ],
+            bubbles: [
+                .init(isUser: true, text: "帮我安排下周二下午三点健身", isError: false),
+                .init(isUser: false, text: "✅ 已确认执行：「健身」（共 1 项）", isError: false),
+            ],
+            drafts: []
+        ))
+        let firstArchive = AISessionStore.loadArchive()
+        assert(firstArchive.sessions.count == 1 && firstArchive.sessions[0].title == "帮我安排下周二下午三点健身")
+
+        // Start a new session, verify previous session remains in archive and can be inspected via JS tools.
+        let secondArchive = AISessionStore.startNewSession()
+        assert(secondArchive.sessions.count == 2 && secondArchive.activeSessionID == secondArchive.sessions[0].id)
+        // Starting another new session while the current one is still empty does not pile up empty sessions.
+        assert(AISessionStore.startNewSession().sessions.count == 2)
+
+        let hostWithSessions = AICodeModeHostContext(
+            now: now,
+            selectedDate: now,
+            timeZone: tz,
+            calendars: host.calendars,
+            existingEvents: [],
+            sessions: AISessionStore.loadArchive().sessions
+        )
+        let sessionRes = try AICodeModeRunner.run(script: """
+        const list = calendar.listSessions();
+        const detail = calendar.readSession('健身');
+        calendar.reply(`${list.length}:${detail.messages[1].content}`);
+        """, host: hostWithSessions)
+        assert(sessionRes.reply == "1:✅ 已确认执行：「健身」（共 1 项）")
+
+        // Switch back to the first session and verify its history is restored.
+        AISessionStore.switchSession(to: firstArchive.activeSessionID)
+        assert(AISessionStore.load().history.count == 2)
+
+        // Meaningful changes detection (no-op edit guard).
+        let baseDraft = AIProposedItem(kind: .event, title: "周会", startDate: existingStart, endDate: existingEnd, isAllDay: false, hasTime: true, calendarID: "cal-work", calendarTitle: "工作")
+        var sameDraft = baseDraft
+        sameDraft.title = "  周会  "
+        sameDraft.startDate = existingStart.addingTimeInterval(10) // < 30s difference
+        assert(!sameDraft.hasMeaningfulChanges(comparedTo: baseDraft, calendar: cal), "Sub-minute/whitespace-only difference must not count as a meaningful edit")
+        var editedDraft = baseDraft
+        editedDraft.startDate = existingStart.addingTimeInterval(3600)
+        assert(editedDraft.hasMeaningfulChanges(comparedTo: baseDraft, calendar: cal))
     }
 }

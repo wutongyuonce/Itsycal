@@ -136,6 +136,8 @@ final class AIAssistantViewModel: ObservableObject {
     @Published var drafts: [AIProposedItem] = [] {
         didSet { persistSession() }
     }
+    @Published var sessions: [AISessionRecord] = []
+    @Published var activeSessionID: String = ""
     @Published var isLoading: Bool = false
     @Published var isCommitting: Bool = false
 
@@ -153,7 +155,7 @@ final class AIAssistantViewModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.resetInMemorySession()
+                self?.restoreSession()
             }
         }
     }
@@ -171,6 +173,9 @@ final class AIAssistantViewModel: ObservableObject {
     private func restoreSession() {
         isRestoring = true
         defer { isRestoring = false }
+        let archive = AISessionStore.loadArchive()
+        sessions = archive.sessions
+        activeSessionID = archive.activeSessionID
         let snap = AISessionStore.load()
         conversationHistory = snap.history
         bubbles = snap.bubbles.map { ChatBubble(isUser: $0.isUser, text: $0.text, isError: $0.isError) }
@@ -179,20 +184,30 @@ final class AIAssistantViewModel: ObservableObject {
 
     private func persistSession() {
         guard !isRestoring else { return }
-        let records = bubbles.suffix(40).map {
+        let records = bubbles.suffix(AISessionStore.maxMessagesPerSession).map {
             AISessionSnapshot.BubbleRecord(isUser: $0.isUser, text: $0.text, isError: $0.isError)
         }
-        let historySlice = Array(conversationHistory.suffix(40))
+        let historySlice = Array(conversationHistory.suffix(AISessionStore.maxMessagesPerSession))
         AISessionStore.save(AISessionSnapshot(history: historySlice, bubbles: records, drafts: drafts))
+        let archive = AISessionStore.loadArchive()
+        sessions = archive.sessions
+        activeSessionID = archive.activeSessionID
     }
 
-    private func resetInMemorySession() {
-        isRestoring = true
-        defer { isRestoring = false }
+    func startNewConversation() {
         cancelCurrentRequest()
+        AISessionStore.startNewSession()
+        restoreSession()
+    }
+
+    func selectSession(_ id: String) {
+        cancelCurrentRequest()
+        AISessionStore.switchSession(to: id)
+        restoreSession()
+    }
+
+    func discardDrafts() {
         drafts.removeAll()
-        conversationHistory.removeAll()
-        bubbles.removeAll()
     }
 
     func sendPrompt() {
@@ -247,17 +262,6 @@ final class AIAssistantViewModel: ObservableObject {
         }
     }
 
-    func cancelCurrentRequest() {
-        currentTask?.cancel()
-        currentTask = nil
-        isLoading = false
-    }
-
-    func clearOrDiscard() {
-        resetInMemorySession()
-        AISessionStore.save(AISessionSnapshot())
-    }
-
     func confirmSelectedItems() {
         let chosen = drafts.filter(\.selected)
         guard !chosen.isEmpty, !isCommitting, let delegate = hostDelegate else { return }
@@ -268,7 +272,10 @@ final class AIAssistantViewModel: ObservableObject {
                 guard let self else { return }
                 self.isCommitting = false
                 if success {
-                    self.clearOrDiscard()
+                    let summary = AISessionStore.executionSummary(for: chosen)
+                    self.conversationHistory.append(AIChatMessage(role: .assistant, content: summary))
+                    self.bubbles.append(ChatBubble(isUser: false, text: summary, isError: false))
+                    self.drafts.removeAll()
                     delegate.aiClosePopover()
                 } else if let errorMessage, !errorMessage.isEmpty {
                     self.bubbles.append(ChatBubble(isUser: false, text: errorMessage, isError: true))
@@ -276,6 +283,12 @@ final class AIAssistantViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    func cancelCurrentRequest() {
+        currentTask?.cancel()
+        currentTask = nil
+        isLoading = false
     }
 
     private func buildHostContext() -> AICodeModeHostContext {
@@ -305,6 +318,7 @@ final class AIAssistantViewModel: ObservableObject {
             calendars: calendars,
             existingEvents: existing,
             currentDrafts: drafts,
+            sessions: AISessionStore.loadArchive().sessions,
             queryRangeProvider: { [weak delegate = hostDelegate] start, end in
                 let raw = delegate?.aiQueryItems(from: start, to: end) ?? []
                 return raw.map { Self.mapExistingItem($0) }
@@ -371,14 +385,38 @@ struct AIAssistantPopoverView: View {
             Text("AI 日程与提醒助手")
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
-            if !vm.bubbles.isEmpty || !vm.drafts.isEmpty {
-                Button("清空") {
-                    vm.clearOrDiscard()
+            if vm.sessions.count > 1 || (!vm.bubbles.isEmpty) {
+                Menu {
+                    ForEach(vm.sessions) { s in
+                        Button {
+                            vm.selectSession(s.id)
+                        } label: {
+                            HStack {
+                                Text(s.title)
+                                if s.id == vm.activeSessionID {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("切换历史会话")
             }
+            Button {
+                vm.startNewConversation()
+            } label: {
+                Image(systemName: "plus.bubble")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("新建对话")
             Button {
                 vm.hostDelegate?.aiOpenSettings()
             } label: {
@@ -506,8 +544,7 @@ struct AIAssistantPopoverView: View {
 
             HStack(spacing: 8) {
                 Button("放弃") {
-                    vm.clearOrDiscard()
-                    vm.hostDelegate?.aiClosePopover()
+                    vm.discardDrafts()
                 }
                 .controlSize(.small)
 

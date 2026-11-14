@@ -33,6 +33,7 @@ struct MobileRootView: View {
     @State private var editorRequest: EditorRequest?
     @State private var showAISheet = false
     @State private var showSettingsSheet = false
+    @State private var showUndoConfirm = false
 
     private struct EditorRequest: Identifiable {
         let id = UUID()
@@ -68,7 +69,7 @@ struct MobileRootView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        eventStore.undo()
+                        showUndoConfirm = true
                     } label: {
                         Image(systemName: "arrow.uturn.backward")
                     }
@@ -109,6 +110,14 @@ struct MobileRootView: View {
             .sheet(isPresented: $showSettingsSheet) {
                 MobileSettingsSheet(eventStore: eventStore)
             }
+            .alert("确认撤回操作？", isPresented: $showUndoConfirm) {
+                Button("确认撤回", role: .destructive) {
+                    eventStore.undo()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将撤回：\(eventStore.topUndoSummary ?? "")")
+            }
             .alert(
                 "无法完成操作",
                 isPresented: Binding(get: { eventStore.lastError != nil }, set: { if !$0 { eventStore.lastError = nil } })
@@ -141,6 +150,8 @@ final class MobileAIAssistantViewModel: ObservableObject {
     @Published var inputText: String = ""
     @Published var bubbles: [Bubble] = []
     @Published var drafts: [AIProposedItem] = []
+    @Published var sessions: [AISessionRecord] = []
+    @Published var activeSessionID: String = ""
     @Published var isLoading: Bool = false
 
     private var history: [AIChatMessage] = []
@@ -149,6 +160,13 @@ final class MobileAIAssistantViewModel: ObservableObject {
     var selectedCount: Int { drafts.filter(\.selected).count }
 
     init() {
+        restore()
+    }
+
+    func restore() {
+        let archive = AISessionStore.loadArchive()
+        sessions = archive.sessions
+        activeSessionID = archive.activeSessionID
         let snap = AISessionStore.load()
         history = snap.history
         bubbles = snap.bubbles.map { Bubble(isUser: $0.isUser, text: $0.text, isError: $0.isError) }
@@ -160,6 +178,7 @@ final class MobileAIAssistantViewModel: ObservableObject {
         guard !text.isEmpty, !isLoading else { return }
         inputText = ""
         bubbles.append(Bubble(isUser: true, text: text, isError: false))
+        persist()
 
         let config = AIConfigStore.shared.load()
         guard config.isConfigured else {
@@ -198,20 +217,41 @@ final class MobileAIAssistantViewModel: ObservableObject {
         }
     }
 
-    func clear() {
+    func startNewConversation() {
         currentTask?.cancel()
         isLoading = false
+        AISessionStore.startNewSession()
+        restore()
+    }
+
+    func selectSession(_ id: String) {
+        currentTask?.cancel()
+        isLoading = false
+        AISessionStore.switchSession(to: id)
+        restore()
+    }
+
+    func discardDrafts() {
         drafts.removeAll()
-        history.removeAll()
-        bubbles.removeAll()
-        AISessionStore.save(AISessionSnapshot())
+        persist()
+    }
+
+    func recordExecution(of chosen: [AIProposedItem]) {
+        let summary = AISessionStore.executionSummary(for: chosen)
+        history.append(AIChatMessage(role: .assistant, content: summary))
+        bubbles.append(Bubble(isUser: false, text: summary, isError: false))
+        drafts.removeAll()
+        persist()
     }
 
     private func persist() {
-        let records = bubbles.suffix(40).map {
+        let records = bubbles.suffix(AISessionStore.maxMessagesPerSession).map {
             AISessionSnapshot.BubbleRecord(isUser: $0.isUser, text: $0.text, isError: $0.isError)
         }
-        AISessionStore.save(AISessionSnapshot(history: Array(history.suffix(40)), bubbles: records, drafts: drafts))
+        AISessionStore.save(AISessionSnapshot(history: Array(history.suffix(AISessionStore.maxMessagesPerSession)), bubbles: records, drafts: drafts))
+        let archive = AISessionStore.loadArchive()
+        sessions = archive.sessions
+        activeSessionID = archive.activeSessionID
     }
 }
 
@@ -263,10 +303,31 @@ struct MobileAIAssistantSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
-                if !vm.bubbles.isEmpty || !vm.drafts.isEmpty {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("清空") { vm.clear() }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if vm.sessions.count > 1 || !vm.bubbles.isEmpty {
+                        Menu {
+                            ForEach(vm.sessions) { s in
+                                Button {
+                                    vm.selectSession(s.id)
+                                } label: {
+                                    if s.id == vm.activeSessionID {
+                                        Label(s.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(s.title)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                        }
+                        .accessibilityLabel("切换历史会话")
                     }
+                    Button {
+                        vm.startNewConversation()
+                    } label: {
+                        Image(systemName: "plus.bubble")
+                    }
+                    .accessibilityLabel("新建对话")
                 }
             }
         }
@@ -329,8 +390,7 @@ struct MobileAIAssistantSheet: View {
                 if !vm.drafts.isEmpty {
                     HStack {
                         Button("放弃") {
-                            vm.clear()
-                            dismiss()
+                            vm.discardDrafts()
                         }
                         .buttonStyle(.glass)
                         Spacer()
@@ -370,7 +430,7 @@ struct MobileAIAssistantSheet: View {
             }
             do {
                 try eventStore.applyBatchChanges(chosen)
-                vm.clear()
+                vm.recordExecution(of: chosen)
                 dismiss()
             } catch {
                 vm.bubbles.append(.init(isUser: false, text: error.localizedDescription, isError: true))

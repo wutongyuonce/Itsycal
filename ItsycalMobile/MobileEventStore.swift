@@ -75,13 +75,22 @@ final class MobileEventStore: ObservableObject {
     }
     @Published private(set) var itemsByDay: [Date: [MobileAgendaItem]] = [:]
     @Published private(set) var overdueReminders: [MobileAgendaItem] = []
-    @Published private(set) var canUndo = false
+    @Published private(set) var topUndoSummary: String?
+    var canUndo: Bool { topUndoSummary != nil }
     /// A failed write the user didn't start from a form (undo, swipe delete), shown as an alert.
     @Published var lastError: String?
 
+    private struct UndoEntry {
+        let summary: String
+        let perform: (MobileEventStore) -> Void
+    }
+
     private let store = EKEventStore()
     private let selectedCalendarsKey = "SelectedCalendars"
-    private let undoManager = UndoManager()
+    private var undoStack: [UndoEntry] = [] {
+        didSet { topUndoSummary = undoStack.last?.summary }
+    }
+    private var isPerformingUndo = false
     private var storeObserver: NSObjectProtocol?
     /// Bumped on every reload so a slow reminder fetch can't overwrite a newer one.
     private var reloadGeneration = 0
@@ -375,9 +384,10 @@ final class MobileEventStore: ObservableObject {
         guard item.kind == .reminder,
               let rem = store.calendarItem(withIdentifier: item.targetIdentifier) as? EKReminder else { return }
         rem.isCompleted.toggle()
+        let summary = "\(rem.isCompleted ? "勾选完成" : "取消完成")提醒事项「\(item.title)」"
         do {
             try store.save(rem, commit: true)
-            registerUndo { $0.toggleReminderCompletion(item) }
+            registerUndo(summary: summary) { $0.toggleReminderCompletion(item) }
         } catch {
             store.reset()
             report(error)
@@ -421,6 +431,7 @@ final class MobileEventStore: ObservableObject {
             switch object {
             case let ev as EKEvent:
                 previous = Self.snapshot(from: ev)
+                guard draft.hasMeaningfulChanges(comparedTo: previous, calendar: .autoupdatingCurrent) else { return }
                 // A changed repeat always applies to the series; EventKit can't
                 // give a single occurrence its own recurrence.
                 let repeatChanged = draft.repeatFrequency != previous.repeatFrequency
@@ -429,6 +440,7 @@ final class MobileEventStore: ObservableObject {
                 try store.save(ev, span: span, commit: true)
             case let rem as EKReminder:
                 previous = Self.snapshot(from: rem)
+                guard draft.hasMeaningfulChanges(comparedTo: previous, calendar: .autoupdatingCurrent) else { return }
                 try fill(rem, from: draft, updateRecurrence: draft.repeatFrequency != previous.repeatFrequency)
                 try store.save(rem, commit: true)
             default:
@@ -440,7 +452,8 @@ final class MobileEventStore: ObservableObject {
             throw error
         }
         let updated = MobileItemRef(kind: ref.kind, id: Self.identifier(of: object), start: draft.startDate, title: draft.title)
-        registerUndo { store in
+        let noun = ref.kind == .reminder ? "提醒事项" : "日程"
+        registerUndo(summary: "修改\(noun)「\(draft.title)」") { store in
             do { try store.update(updated, to: previous, futureOccurrences: futureOccurrences) } catch { store.report(error) }
         }
         select(draft.startDate)
@@ -461,8 +474,10 @@ final class MobileEventStore: ObservableObject {
     }
 
     func undo() {
-        undoManager.undo()
-        canUndo = undoManager.canUndo
+        guard let entry = undoStack.popLast() else { return }
+        isPerformingUndo = true
+        defer { isPerformingUndo = false }
+        entry.perform(self)
     }
 
     /// Creates and deletes `items` in one commit, or none of them. Registers the
@@ -525,7 +540,7 @@ final class MobileEventStore: ObservableObject {
                 calendarTitle: ""
             ))
         }
-        registerUndo { store in
+        registerUndo(summary: Self.undoSummary(for: items)) { store in
             do { try store.applyBatchChanges(inverse) } catch { store.report(error) }
         }
         if let first = items.first {
@@ -533,9 +548,24 @@ final class MobileEventStore: ObservableObject {
         }
     }
 
-    private func registerUndo(_ action: @escaping (MobileEventStore) -> Void) {
-        undoManager.registerUndo(withTarget: self) { action($0) }
-        canUndo = undoManager.canUndo
+    private func registerUndo(summary: String, _ action: @escaping (MobileEventStore) -> Void) {
+        guard !isPerformingUndo else { return }
+        undoStack.append(UndoEntry(summary: summary, perform: action))
+    }
+
+    private static func undoSummary(for items: [AIProposedItem]) -> String {
+        if items.count == 1, let item = items.first {
+            let verb = item.operation == .delete ? "删除" : "新建"
+            let noun = item.kind == .reminder ? "提醒事项" : "日程"
+            return "\(verb)\(noun)「\(item.title)」"
+        }
+        let addCount = items.filter { $0.operation == .create }.count
+        let delCount = items.filter { $0.operation == .delete }.count
+        var parts: [String] = []
+        if addCount > 0 { parts.append("新增 \(addCount) 项") }
+        if delCount > 0 { parts.append("删除 \(delCount) 项") }
+        let firstTitle = items.first.map { "「\($0.title)」等" } ?? ""
+        return "批量操作（\(parts.joined(separator: "、")) \(firstTitle)）"
     }
 
     private func fill(_ ev: EKEvent, from item: AIProposedItem, updateRecurrence: Bool) throws {
@@ -675,6 +705,7 @@ final class MobileEventStore: ObservableObject {
             calendars: descriptors,
             existingEvents: existing,
             currentDrafts: currentDrafts,
+            sessions: AISessionStore.loadArchive().sessions,
             queryRangeProvider: { [existing] start, end in
                 guard start < end else { return [] }
                 var snaps: [AIExistingEventSnapshot] = []

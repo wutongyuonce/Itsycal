@@ -966,6 +966,60 @@ static const NSInteger kCustomRepeatTag = -1;
     }
 }
 
+- (BOOL)hasChangesForEditingItem:(EventInfo *)info
+{
+    if (_recurrenceModified || _alarmsModified) return YES;
+    EKCalendarItem *item = info.item;
+    if (!item) return NO;
+
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSString *title = [_title.stringValue stringByTrimmingCharactersInSet:ws];
+    if (![title isEqualToString:(item.title ?: @"")]) return YES;
+
+    NSString *urlText = [_url.stringValue stringByTrimmingCharactersInSet:ws];
+    if (![urlText isEqualToString:(item.URL.absoluteString ?: @"")]) return YES;
+
+    NSString *notes = [_notes.string stringByTrimmingCharactersInSet:ws];
+    if (![notes isEqualToString:([item.notes stringByTrimmingCharactersInSet:ws] ?: @"")]) return YES;
+
+    NSInteger index = _calPopup.selectedItem.tag;
+    NSArray *sourcesAndCalendars = [self.ec sourcesAndCalendars];
+    CalendarInfo *calInfo = (index >= 0 && index < (NSInteger)sourcesAndCalendars.count && [sourcesAndCalendars[index] isKindOfClass:[CalendarInfo class]])
+        ? sourcesAndCalendars[index]
+        : nil;
+    if (calInfo.calendar && ![calInfo.calendar.calendarIdentifier isEqualToString:(item.calendar.calendarIdentifier ?: @"")]) {
+        return YES;
+    }
+
+    BOOL isAllDay = (_allDayCheckbox.state == NSControlStateValueOn);
+    if (isAllDay != info.isRealAllDay) return YES;
+
+    NSDate *origStart = info.startDate ?: [NSDate new];
+    if (info.event != nil) {
+        NSString *loc = [_location.stringValue stringByTrimmingCharactersInSet:ws];
+        if (![loc isEqualToString:(info.location ?: @"")]) return YES;
+        NSDate *origEnd = info.endDate ?: origStart;
+        if (isAllDay) {
+            if (![self.cal isDate:_startDate.dateValue inSameDayAsDate:origStart] ||
+                ![self.cal isDate:_endDate.dateValue inSameDayAsDate:origEnd]) {
+                return YES;
+            }
+        } else {
+            if (fabs([_startDate.dateValue timeIntervalSinceDate:origStart]) >= 30.0 ||
+                fabs([_endDate.dateValue timeIntervalSinceDate:origEnd]) >= 30.0) {
+                return YES;
+            }
+        }
+    } else {
+        if (isAllDay) {
+            if (![self.cal isDate:_startDate.dateValue inSameDayAsDate:origStart]) return YES;
+        } else {
+            if (fabs([_startDate.dateValue timeIntervalSinceDate:origStart]) >= 30.0) return YES;
+        }
+    }
+    return NO;
+}
+
 - (void)saveEvent:(id)sender
 {
     NSError *error = nil;
@@ -973,7 +1027,7 @@ static const NSInteger kCustomRepeatTag = -1;
 
     if (self.editingItem != nil) {
         EKCalendarItem *target = self.editingItem.item;
-        if (target == nil || ![target refresh]) {
+        if (target == nil || ![target refresh] || ![self hasChangesForEditingItem:self.editingItem]) {
             [self.enclosingPopover close];
             return;
         }

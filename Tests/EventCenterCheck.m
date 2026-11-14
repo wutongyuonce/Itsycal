@@ -224,6 +224,15 @@ int main(void) {
         [undoManager redo];
         NSCAssert([editableEvent.title isEqualToString:@"Updated Title"], @"Redo of updateItem must reapply updated title");
 
+        // No-op edit (unchanged fields) must not commit or register an undo action.
+        NSUndoManager *noopUndoManager = [NSUndoManager new];
+        NSInteger commitsBeforeNoop = store.commitCount;
+        BOOL noopUpdated = [center updateItem:editableEvent span:EKSpanThisEvent changes:^(EKCalendarItem *target) {
+            target.title = @"Updated Title";
+        } undoManager:noopUndoManager error:&saveError];
+        NSCAssert(noopUpdated && store.commitCount == commitsBeforeNoop && !noopUndoManager.canUndo,
+                  @"No-op updateItem must not commit or push an undo entry");
+
         // Failed commit rolls back via store reset.
         store.failOnCommit = YES;
         store.didReset = NO;

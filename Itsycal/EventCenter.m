@@ -323,8 +323,12 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
              error:(NSError **)error {
     if ([item isKindOfClass:[EKEvent class]]) {
         EKEvent *event = (EKEvent *)item;
+        NSArray *beforeState = [self _editStateForEvent:event];
         EventRestorer restore = EventRestorerForEvent(event);
         if (changes) changes(event);
+        if ([[self _editStateForEvent:event] isEqual:beforeState]) {
+            return YES;
+        }
         if (![_store saveEvent:event span:span commit:YES error:error]) {
             [self _rollbackStoreAndRefetch];
             return NO;
@@ -366,8 +370,12 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
     }
     if ([item isKindOfClass:[EKReminder class]]) {
         EKReminder *reminder = (EKReminder *)item;
+        NSArray *beforeState = [self _editStateForReminder:reminder];
         ReminderRestorer restore = ReminderRestorerForReminder(reminder);
         if (changes) changes(reminder);
+        if ([[self _editStateForReminder:reminder] isEqual:beforeState]) {
+            return YES;
+        }
         if (![_store saveReminder:reminder commit:YES error:error]) {
             [self _rollbackStoreAndRefetch];
             return NO;
@@ -813,6 +821,38 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
     return @[reminder.title ?: @"",
              reminder.calendar.calendarIdentifier ?: @"",
              @(reminder.isCompleted), @(hasTime), dueValue];
+}
+
+- (NSArray *)_editStateForEvent:(EKEvent *)event {
+    NSMutableArray *alarmOffsets = [NSMutableArray new];
+    for (EKAlarm *alarm in event.alarms) [alarmOffsets addObject:@(alarm.relativeOffset)];
+    EKRecurrenceRule *rule = event.recurrenceRules.firstObject;
+    return @[
+        [self _undoFingerprintForEvent:event],
+        event.location ?: @"",
+        event.URL.absoluteString ?: @"",
+        event.notes ?: @"",
+        @(rule != nil),
+        @(rule.frequency),
+        @(rule.interval),
+        rule.recurrenceEnd.endDate ?: NSNull.null,
+        alarmOffsets
+    ];
+}
+
+- (NSArray *)_editStateForReminder:(EKReminder *)reminder {
+    EKRecurrenceRule *rule = reminder.recurrenceRules.firstObject;
+    return @[
+        [self _undoFingerprintForReminder:reminder],
+        reminder.URL.absoluteString ?: @"",
+        reminder.notes ?: @"",
+        @(reminder.priority),
+        @(rule != nil),
+        @(rule.frequency),
+        @(rule.interval),
+        rule.recurrenceEnd.endDate ?: NSNull.null,
+        AlarmValuesOfReminder(reminder) ?: @[]
+    ];
 }
 
 #pragma mark - Private (GCD thread pool)

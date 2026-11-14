@@ -14,7 +14,7 @@ struct MobileItemEditor: View {
     private let isRecurring: Bool
     private let hasCustomRepeat: Bool
     private let isMissing: Bool
-    private let originalRepeat: AIRepeatFrequency
+    private let originalDraft: AIProposedItem?
 
     private enum Action { case save, delete }
 
@@ -27,7 +27,7 @@ struct MobileItemEditor: View {
         isRecurring = editable?.isRecurring ?? false
         hasCustomRepeat = editable?.hasCustomRepeat ?? false
         isMissing = existing != nil && editable == nil
-        originalRepeat = editable?.draft.repeatFrequency ?? .none
+        originalDraft = editable?.draft
     }
 
     private var isReadOnly: Bool { isMissing || existing?.isEditable == false }
@@ -180,9 +180,16 @@ struct MobileItemEditor: View {
     }
 
     /// Recurring events ask for a span, except when saving a changed repeat,
-    /// which always applies to the whole series.
+    /// which always applies to the whole series. If nothing changed, just dismiss.
     private func request(_ action: Action) {
-        let repeatChanged = action == .save && draft.repeatFrequency != originalRepeat
+        if action == .save, let originalDraft {
+            let item = normalizedDraft()
+            guard item.hasMeaningfulChanges(comparedTo: originalDraft, calendar: .autoupdatingCurrent) else {
+                dismiss()
+                return
+            }
+        }
+        let repeatChanged = action == .save && draft.repeatFrequency != (originalDraft?.repeatFrequency ?? .none)
         if existing != nil && isRecurring && draft.kind == .event && !repeatChanged {
             pendingSpanAction = action
         } else {
@@ -190,7 +197,7 @@ struct MobileItemEditor: View {
         }
     }
 
-    private func perform(_ action: Action, futureOccurrences: Bool) {
+    private func normalizedDraft() -> AIProposedItem {
         var item = draft
         item.title = trimmedTitle
         let cal = Calendar.autoupdatingCurrent
@@ -202,6 +209,11 @@ struct MobileItemEditor: View {
         } else {
             item.endDate = max(item.startDate, item.endDate)
         }
+        return item
+    }
+
+    private func perform(_ action: Action, futureOccurrences: Bool) {
+        let item = normalizedDraft()
         Task {
             do {
                 if item.kind == .reminder && !eventStore.remindersAuthorized {

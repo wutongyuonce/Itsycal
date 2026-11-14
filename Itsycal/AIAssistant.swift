@@ -255,6 +255,40 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
         self.priority = priority
         self.conflictTitles = conflictTitles
     }
+
+    public func hasMeaningfulChanges(comparedTo other: AIProposedItem, calendar: Calendar = .current) -> Bool {
+        let trim = { (s: String?) in (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        if kind != other.kind ||
+           trim(title) != trim(other.title) ||
+           calendarID != other.calendarID ||
+           isAllDay != other.isAllDay ||
+           hasTime != other.hasTime ||
+           trim(location) != trim(other.location) ||
+           trim(urlString) != trim(other.urlString) ||
+           trim(notes) != trim(other.notes) ||
+           repeatFrequency != other.repeatFrequency ||
+           alertMinutesBefore != other.alertMinutesBefore ||
+           priority != other.priority {
+            return true
+        }
+        if isAllDay {
+            if !calendar.isDate(startDate, inSameDayAs: other.startDate) { return true }
+            if kind == .event && !calendar.isDate(endDate, inSameDayAs: other.endDate) { return true }
+        } else {
+            if abs(startDate.timeIntervalSince(other.startDate)) >= 30 { return true }
+            if kind == .event && abs(endDate.timeIntervalSince(other.endDate)) >= 30 { return true }
+        }
+        if repeatFrequency != .none {
+            switch (repeatEndDate, other.repeatEndDate) {
+            case (nil, nil): break
+            case (let d1?, let d2?):
+                if !calendar.isDate(d1, inSameDayAs: d2) { return true }
+            default:
+                return true
+            }
+        }
+        return false
+    }
 }
 
 public struct AICalendarDescriptor: Codable, Equatable, Sendable {
@@ -329,6 +363,7 @@ public struct AICodeModeHostContext: Sendable {
     public let calendars: [AICalendarDescriptor]
     public let existingEvents: [AIExistingEventSnapshot]
     public let currentDrafts: [AIProposedItem]
+    public let sessions: [AISessionRecord]
     public let queryRangeProvider: (@Sendable (Date, Date) -> [AIExistingEventSnapshot])?
 
     public init(
@@ -338,6 +373,7 @@ public struct AICodeModeHostContext: Sendable {
         calendars: [AICalendarDescriptor],
         existingEvents: [AIExistingEventSnapshot],
         currentDrafts: [AIProposedItem] = [],
+        sessions: [AISessionRecord] = [],
         queryRangeProvider: (@Sendable (Date, Date) -> [AIExistingEventSnapshot])? = nil
     ) {
         self.now = now
@@ -346,6 +382,7 @@ public struct AICodeModeHostContext: Sendable {
         self.calendars = calendars
         self.existingEvents = existingEvents
         self.currentDrafts = currentDrafts
+        self.sessions = sessions
         self.queryRangeProvider = queryRangeProvider
     }
 }
@@ -748,10 +785,49 @@ public enum AICodeModeRunner {
             }
         }
 
+        let listSessionsBlock: @convention(block) () -> NSArray = {
+            let nonEmpty = host.sessions.filter { !$0.history.isEmpty || !$0.bubbles.isEmpty }
+            let mapped = nonEmpty.map { session -> [String: Any] in
+                let lastMsg = session.history.last?.content ?? session.bubbles.last?.text ?? ""
+                return [
+                    "id": session.id,
+                    "title": session.title,
+                    "updatedAt": localISO.string(from: session.updatedAt),
+                    "messageCount": session.history.count,
+                    "preview": String(lastMsg.prefix(120)),
+                ]
+            }
+            return mapped as NSArray
+        }
+
+        let readSessionBlock: @convention(block) (JSValue?) -> Any = { rawVal in
+            let nonEmpty = host.sessions.filter { !$0.history.isEmpty || !$0.bubbles.isEmpty }
+            let query = (rawVal?.toString() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let matched: AISessionRecord?
+            if query.isEmpty || query == "undefined" || query == "null" {
+                matched = nonEmpty.first
+            } else {
+                matched = nonEmpty.first(where: { $0.id == query })
+                    ?? nonEmpty.first(where: { $0.title.localizedCaseInsensitiveContains(query) })
+            }
+            guard let s = matched else { return NSNull() }
+            let messages = s.history.map { m -> [String: String] in
+                ["role": m.role.rawValue, "content": m.content]
+            }
+            return [
+                "id": s.id,
+                "title": s.title,
+                "updatedAt": localISO.string(from: s.updatedAt),
+                "messages": messages,
+            ] as NSDictionary
+        }
+
         jsContext.setObject(getContextBlock, forKeyedSubscript: "__itsycalGetContext" as NSString)
         jsContext.setObject(listCalendarsBlock, forKeyedSubscript: "__itsycalListCalendars" as NSString)
         jsContext.setObject(queryEventsBlock, forKeyedSubscript: "__itsycalQueryEvents" as NSString)
         jsContext.setObject(getDraftsBlock, forKeyedSubscript: "__itsycalGetDrafts" as NSString)
+        jsContext.setObject(listSessionsBlock, forKeyedSubscript: "__itsycalListSessions" as NSString)
+        jsContext.setObject(readSessionBlock, forKeyedSubscript: "__itsycalReadSession" as NSString)
         jsContext.setObject(proposeEventBlock, forKeyedSubscript: "__itsycalProposeEvent" as NSString)
         jsContext.setObject(proposeReminderBlock, forKeyedSubscript: "__itsycalProposeReminder" as NSString)
         jsContext.setObject(proposeDeleteBlock, forKeyedSubscript: "__itsycalProposeDelete" as NSString)
@@ -763,6 +839,8 @@ public enum AICodeModeRunner {
             listCalendars: () => __itsycalListCalendars(),
             queryEvents: (start, end) => __itsycalQueryEvents(start, end),
             getDrafts: () => __itsycalGetDrafts(),
+            listSessions: () => __itsycalListSessions(),
+            readSession: (id) => __itsycalReadSession(id),
             proposeEvent: (item) => __itsycalProposeEvent(item),
             proposeReminder: (item) => __itsycalProposeReminder(item),
             proposeDelete: (item) => __itsycalProposeDelete(item),
@@ -856,8 +934,56 @@ public struct AISessionSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+public struct AISessionRecord: Identifiable, Codable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var updatedAt: Date
+    public var history: [AIChatMessage]
+    public var bubbles: [AISessionSnapshot.BubbleRecord]
+    public var drafts: [AIProposedItem]
+
+    public init(
+        id: String = UUID().uuidString,
+        title: String = "新对话",
+        updatedAt: Date = Date(),
+        history: [AIChatMessage] = [],
+        bubbles: [AISessionSnapshot.BubbleRecord] = [],
+        drafts: [AIProposedItem] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.updatedAt = updatedAt
+        self.history = history
+        self.bubbles = bubbles
+        self.drafts = drafts
+    }
+
+    public static func derivedTitle(from bubbles: [AISessionSnapshot.BubbleRecord], history: [AIChatMessage]) -> String {
+        let firstUser = bubbles.first(where: \.isUser)?.text ?? history.first(where: { $0.role == .user })?.content ?? ""
+        let cleaned = firstUser.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        guard !cleaned.isEmpty else { return "新对话" }
+        return cleaned.count > 22 ? String(cleaned.prefix(22)) + "…" : cleaned
+    }
+}
+
+public struct AISessionArchive: Codable, Equatable, Sendable {
+    public var activeSessionID: String
+    public var sessions: [AISessionRecord]
+
+    public init(activeSessionID: String = "", sessions: [AISessionRecord] = []) {
+        self.activeSessionID = activeSessionID
+        self.sessions = sessions
+    }
+}
+
 public enum AISessionStore {
+    public static let maxSessions = 20
+    public static let maxMessagesPerSession = 60
+    nonisolated(unsafe) public static var overrideFileURL: URL?
+
     public static func sessionFileURL() -> URL? {
+        if let overrideFileURL { return overrideFileURL }
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -867,19 +993,103 @@ public enum AISessionStore {
         return dir.appendingPathComponent("ai-session.json", isDirectory: false)
     }
 
-    public static func load() -> AISessionSnapshot {
+    public static func loadArchive() -> AISessionArchive {
         guard let url = sessionFileURL(),
-              let data = try? Data(contentsOf: url),
-              let snap = try? JSONDecoder().decode(AISessionSnapshot.self, from: data) else {
+              let data = try? Data(contentsOf: url) else {
+            let initial = AISessionRecord()
+            return AISessionArchive(activeSessionID: initial.id, sessions: [initial])
+        }
+        if let archive = try? JSONDecoder().decode(AISessionArchive.self, from: data),
+           !archive.sessions.isEmpty {
+            let activeID = archive.sessions.contains(where: { $0.id == archive.activeSessionID })
+                ? archive.activeSessionID
+                : archive.sessions[0].id
+            return AISessionArchive(activeSessionID: activeID, sessions: archive.sessions)
+        }
+        // Migrate legacy single-session snapshot if present.
+        if let legacy = try? JSONDecoder().decode(AISessionSnapshot.self, from: data) {
+            let rec = AISessionRecord(
+                title: AISessionRecord.derivedTitle(from: legacy.bubbles, history: legacy.history),
+                updatedAt: Date(),
+                history: legacy.history,
+                bubbles: legacy.bubbles,
+                drafts: legacy.drafts
+            )
+            return AISessionArchive(activeSessionID: rec.id, sessions: [rec])
+        }
+        let initial = AISessionRecord()
+        return AISessionArchive(activeSessionID: initial.id, sessions: [initial])
+    }
+
+    public static func saveArchive(_ archive: AISessionArchive) {
+        guard let url = sessionFileURL() else { return }
+        var normalized = archive
+        if normalized.sessions.count > maxSessions {
+            normalized.sessions = Array(normalized.sessions.prefix(maxSessions))
+        }
+        if let data = try? JSONEncoder().encode(normalized) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    public static func load() -> AISessionSnapshot {
+        let archive = loadArchive()
+        guard let rec = archive.sessions.first(where: { $0.id == archive.activeSessionID }) ?? archive.sessions.first else {
             return AISessionSnapshot()
         }
-        return snap
+        return AISessionSnapshot(history: rec.history, bubbles: rec.bubbles, drafts: rec.drafts)
     }
 
     public static func save(_ snapshot: AISessionSnapshot) {
-        guard let url = sessionFileURL(),
-              let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: url, options: .atomic)
+        var archive = loadArchive()
+        let title = AISessionRecord.derivedTitle(from: snapshot.bubbles, history: snapshot.history)
+        if let idx = archive.sessions.firstIndex(where: { $0.id == archive.activeSessionID }) {
+            archive.sessions[idx].title = title
+            archive.sessions[idx].updatedAt = Date()
+            archive.sessions[idx].history = Array(snapshot.history.suffix(maxMessagesPerSession))
+            archive.sessions[idx].bubbles = Array(snapshot.bubbles.suffix(maxMessagesPerSession))
+            archive.sessions[idx].drafts = snapshot.drafts
+        } else {
+            let rec = AISessionRecord(
+                title: title,
+                updatedAt: Date(),
+                history: Array(snapshot.history.suffix(maxMessagesPerSession)),
+                bubbles: Array(snapshot.bubbles.suffix(maxMessagesPerSession)),
+                drafts: snapshot.drafts
+            )
+            archive.sessions.insert(rec, at: 0)
+            archive.activeSessionID = rec.id
+        }
+        saveArchive(archive)
+    }
+
+    public static func executionSummary(for items: [AIProposedItem]) -> String {
+        let titles = items.prefix(3).map { "「\($0.title)」" }.joined(separator: "、")
+        let suffix = items.count > 3 ? " 等 \(items.count) 项" : "（共 \(items.count) 项）"
+        return "✅ 已确认执行：\(titles)\(suffix)"
+    }
+
+    @discardableResult
+    public static func startNewSession() -> AISessionArchive {
+        var archive = loadArchive()
+        if let current = archive.sessions.first(where: { $0.id == archive.activeSessionID }),
+           current.history.isEmpty && current.bubbles.isEmpty && current.drafts.isEmpty {
+            return archive
+        }
+        let fresh = AISessionRecord()
+        archive.sessions.insert(fresh, at: 0)
+        archive.activeSessionID = fresh.id
+        saveArchive(archive)
+        return archive
+    }
+
+    @discardableResult
+    public static func switchSession(to id: String) -> AISessionArchive {
+        var archive = loadArchive()
+        guard archive.sessions.contains(where: { $0.id == id }) else { return archive }
+        archive.activeSessionID = id
+        saveArchive(archive)
+        return archive
     }
 
     public static func clearCache() {
@@ -966,6 +1176,8 @@ public enum AILLMClient {
         - `calendar.listCalendars()` -> `Array<{ id, title, source, allowsEvents, allowsReminders, isDefaultEvent, isDefaultReminder }>`
         - `calendar.queryEvents(startISO, endISO)` -> `Array<{ id, title, start, end, isAllDay, calendar, kind }>`
         - `calendar.getDrafts()` -> current staged drafts array
+        - `calendar.listSessions()` -> `Array<{ id, title, updatedAt, messageCount, preview }>` (past & current AI sessions stored in cache)
+        - `calendar.readSession(sessionIdOrTitle)` -> `{ id, title, updatedAt, messages: Array<{ role, content }> } | null` (inspect what the user asked or executed in an earlier session)
         - `calendar.proposeEvent({ title, start, end, durationMinutes, isAllDay, calendar, location, url, notes, repeat, repeatEnd, alertMinutes })`
           - `start` / `end`: local ISO string `"YYYY-MM-DDTHH:mm:ss"` (or `"YYYY-MM-DD"` for all-day).
           - `repeat`: `"none" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly"`.
