@@ -1,6 +1,6 @@
 # 构建、安装与排查
 
-本文负责签名、安装与排查步骤；行为契约见 [WEEK_WIDGET_SPEC.md](WEEK_WIDGET_SPEC.md)。要求 macOS 27 / Xcode 27，在 `master` 分支开发。
+本文负责 Mac 与 iPhone / iPad 的签名、安装与排查步骤；行为契约见 [WEEK_WIDGET_SPEC.md](WEEK_WIDGET_SPEC.md) 与 [IOS_APP_SPEC.md](IOS_APP_SPEC.md)。要求 macOS 27 / iOS 26 / Xcode 27，在 `master` 分支开发。
 
 ## 配置签名
 
@@ -19,9 +19,25 @@ ITSYCAL_BUNDLE_ID = com.你的名字.Itsycal
 WEEK_APP_GROUP = 你的团队ID.com.你的名字.Itsycal
 ```
 
-- 两个 target 都读取这份配置。扩展的 Bundle ID 自动为 `$(ITSYCAL_BUNDLE_ID).Widgets`。Bundle ID 在 Apple 账号间唯一，因此除本仓库维护者外都要换成自己的。
+- 四个 target 都读取这份配置，Bundle ID 由 `ITSYCAL_BUNDLE_ID` 派生：Mac 小组件 `.Widgets`、iOS App `.mobile`、iOS 小组件 `.mobile.Widgets`。Bundle ID 在 Apple 账号间唯一，因此除本仓库维护者外都要换成自己的。
 - macOS 支持 `团队ID.组名` 格式的 App Group，无需单独注册。实际能力以 Xcode 签名结果为准。
 - 不要提交证书、私钥、profile 或 `Local.xcconfig`。
+
+## 开发者账号与签名
+
+登录 Xcode 的普通 Apple ID 就是「个人（免费）团队」；加入 Apple Developer Program（付费）后是付费团队。两者对本项目的影响：
+
+| | 免费个人团队 | 付费开发者账号 |
+|---|---|---|
+| Mac App 与 Mac 小组件 | 可用。不嵌入描述文件，没有 7 天限制 | 可用；另可用 Developer ID 签名并公证后分发给他人 |
+| iPhone / iPad 安装 | Xcode 直接装到设备；描述文件 **7 天**后过期，App 与小组件无法启动，要重新 ⌘R | 描述文件 1 年；可用 TestFlight / Ad Hoc 分发 |
+| iOS 的 App Group | 不支持 | 支持（需 `group.` 开头并在开发者网站注册） |
+| 其他限制 | 每 7 天最多注册 10 个 App ID；每台设备最多 3 个免费签名的 App | 无这些限制 |
+
+**小组件的数据来源因此不同：**
+
+- Mac：App 把已选日历的日程写入 App Group 中的 `week.json`，小组件只读这份快照，跟随 App 的日历勾选和一周起始日。
+- iPhone / iPad：为了让免费团队也能用，小组件自己读系统日历生成同格式的快照，所以**显示全部日历、一周起始日跟随系统**。付费账号也是同样的行为；若要让 iOS 小组件跟随 App 设置，需要给两个 iOS target 加上 App Group，并让 App 像 Mac 端一样发布快照（尚未实现）。
 
 **签名边界：** `CODE_SIGNING_ALLOWED=NO` 只能验证编译；原生小组件需要沙盒、App Group 和有效签名，未签名或 ad-hoc 构建无法正常注册。公开分发需要自己的 Developer ID 并 notarize。仓库不含更新器。
 
@@ -45,6 +61,15 @@ INSTALL_APP_PATH="$HOME/Applications/Itsycal.app" bash Scripts/install-week.sh
 - 整个过程忽略 INT/TERM/HUP，不会停在半途。它不是断电安全的事务安装器：若被 SIGKILL，脚本不删除任何残留，旧版留在安装位置同目录的 `.itsycal-week-install.*` 或 `.itsycal-week-backup.*` 中，失败信息会列出路径。
 
 首次使用：打开 Itsycal 允许日历访问，在设置 → Events 中选择日历，再在桌面右键 → 编辑小组件中搜索 Itsycal，添加“本周日程”或“本月日程”。
+
+## 安装到 iPhone / iPad
+
+1. 用数据线连接设备（之后可在同一局域网无线调试），在设备上开启“设置 › 隐私与安全性 › 开发者模式”。
+2. Xcode 顶部选 `ItsycalMobile` scheme 和你的设备，按 ⌘R。小组件扩展会随 App 一起安装。重新 ⌘R 会原地覆盖，权限与设置保留。
+3. 免费团队首次安装时，在“设置 › 通用 › VPN 与设备管理”中信任自己的开发者证书。
+4. 打开一次 App 并允许日历访问，再在主屏幕长按 → 编辑 → 添加小组件，搜索 Itsycal。
+
+图库里没有 Itsycal：确认装的是包含 `ItsycalMobileWidgets` 的版本并已打开过一次 App；仍没有就重启设备。小组件一直提示“允许访问日历”时，说明它没有继承到 App 的日历权限。免费团队 7 天后 App 打不开，重新 ⌘R 即可。
 
 ## 小组件灰色占位或不刷新
 
@@ -70,6 +95,13 @@ bash Tests/check-week.sh
 xcodebuild -project Itsycal.xcodeproj -scheme Itsycal -configuration Debug \
   -destination 'platform=macOS' -derivedDataPath /tmp/itsycal-week-build \
   CODE_SIGNING_ALLOWED=NO build
+```
+
+iOS 端（App 与小组件一起）：
+
+```sh
+xcodebuild -project Itsycal.xcodeproj -target ItsycalMobile -sdk iphonesimulator \
+  -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
 检查只用合成数据，不读取个人日历，也不写桌面快照。无签名编译成功不能证明小组件可运行。

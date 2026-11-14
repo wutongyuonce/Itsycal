@@ -1,4 +1,5 @@
-// Copy to Local.xcconfig (gitignored). Shared by the app and widget targets.
+// Copy to Local.xcconfig (gitignored). Shared by all four targets: the Mac app
+// and widget, and the iPhone/iPad app (ItsycalMobile) and widget.
 // Source-only builds: pass CODE_SIGNING_ALLOWED=NO to xcodebuild.
 DEVELOPMENT_TEAM =
 CODE_SIGN_IDENTITY = -
@@ -13,10 +14,13 @@ ENABLE_HARDENED_RUNTIME = NO
 // ITSYCAL_BUNDLE_ID = com.<your-name>.Itsycal
 // WEEK_APP_GROUP = <your-team-id>.com.<your-name>.Itsycal
 //
-// The widget's bundle ID is ITSYCAL_BUNDLE_ID plus .Widgets. Bundle IDs
-// are globally unique across Apple accounts, so choose your own.
+// Bundle IDs derive from ITSYCAL_BUNDLE_ID: Mac widget .Widgets, iOS app
+// .mobile, iOS widget .mobile.Widgets. They are globally unique across Apple
+// accounts, so choose your own.
 // macOS permits team-prefixed App Groups without registering a group on the
-// developer website. Both targets must use the same team and group. Xcode
-// manages signing; no personal certificate, profile or team ID belongs in Git.
+// developer website. Both Mac targets must use the same team and group. The
+// iOS targets use no App Group, so a free (personal) team can build them;
+// its iOS profiles expire after 7 days. See docs/WEEK_WIDGET_SETUP.md.
+// Xcode manages signing; no personal certificate, profile or team ID belongs in Git.
 // The fallback group.com.wutongyuonce.Itsycal only permits compilation and is
 // not a promise that ad-hoc signed builds can access the shared container.

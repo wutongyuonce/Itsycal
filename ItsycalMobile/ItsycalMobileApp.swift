@@ -23,11 +23,10 @@ struct ItsycalMobileApp: App {
 
 // MARK: - Root Layout
 
-/// The month view leads. Wide windows (iPad, iPhone landscape) put a ~30%
-/// agenda column beside it; narrow ones (iPhone portrait, Slide Over, narrow
-/// Split View) stack it under a month view taking 60% of the height. The
-/// choice follows the actual window size, not the size class, so a regular-
-/// width but narrow iPad window never squeezes the month view.
+/// The month view leads. Landscape windows put a ~30% agenda column beside
+/// it; portrait ones stack the agenda under a month view taking 60% of the
+/// height. The same rule on iPhone and iPad, decided from the window's own
+/// shape, so Split View, Slide Over and Stage Manager windows follow it too.
 struct MobileRootView: View {
     @ObservedObject var eventStore: MobileEventStore
 
@@ -45,7 +44,7 @@ struct MobileRootView: View {
         NavigationStack {
             GeometryReader { geometry in
                 let size = geometry.size
-                if size.width >= 700 || (size.width > size.height && size.width >= 560) {
+                if size.width > size.height && size.width >= 560 {
                     HStack(spacing: 0) {
                         MobileMonthView(eventStore: eventStore)
                             .padding(.horizontal, 16)
@@ -216,139 +215,48 @@ final class MobileAIAssistantViewModel: ObservableObject {
     }
 }
 
+/// Chat and the proposed changes in one scroll, on the system glass material:
+/// glass bubbles and cards, with the input and confirm actions floating at the bottom.
 struct MobileAIAssistantSheet: View {
     @ObservedObject var eventStore: MobileEventStore
     @StateObject private var vm = MobileAIAssistantViewModel()
     @Environment(\.dismiss) private var dismiss
 
+    private var canSend: Bool {
+        !vm.isLoading && !vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if vm.bubbles.isEmpty && vm.drafts.isEmpty {
-                            Text("输入自然语言即可批量创建或删除日程与提醒事项（例如：“下周一开始每隔两天下午 3 点排算法复习，共 3 次”）。")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .padding(8)
-                        }
-                        ForEach(vm.bubbles) { b in
-                            HStack {
-                                if b.isUser { Spacer(minLength: 40) }
-                                Text(b.text)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(b.isError ? Color.red : (b.isUser ? Color.white : Color.primary))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(b.isError ? Color.red.opacity(0.12) : (b.isUser ? Color.accentColor : Color.primary.opacity(0.07)))
-                                    )
-                                if !b.isUser { Spacer(minLength: 40) }
-                            }
-                        }
-                        if vm.isLoading {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("正在通过 CodeMode 编排日程…")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(8)
-                        }
-                    }
-                    .padding(14)
-                }
-
-                if !vm.drafts.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("待执行清单 (\(vm.selectedCount)/\(vm.drafts.count)) — 可继续发话调整")
-                            .font(.system(size: 12, weight: .semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if vm.bubbles.isEmpty && vm.drafts.isEmpty {
+                        Text("用自然语言批量创建或删除日程与提醒事项，例如：“下周一开始每隔两天下午 3 点排算法复习，共 3 次”。")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 8)
-
-                        ScrollView {
-                            VStack(spacing: 8) {
-                                ForEach($vm.drafts) { $item in
-                                    HStack(spacing: 10) {
-                                        Toggle("", isOn: $item.selected)
-                                            .labelsHidden()
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 6) {
-                                                if item.operation == .delete {
-                                                    Text("删除")
-                                                        .font(.system(size: 10, weight: .bold))
-                                                        .foregroundStyle(.red)
-                                                }
-                                                Text(item.title)
-                                                    .font(.system(size: 14, weight: .medium))
-                                                    .strikethrough(item.operation == .delete)
-                                                Spacer()
-                                                Text(item.calendarTitle)
-                                                    .font(.system(size: 11))
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            if !item.conflictTitles.isEmpty {
-                                                Text("⚠️ 与「\(item.conflictTitles.joined(separator: "、"))」时间冲突")
-                                                    .font(.system(size: 11))
-                                                    .foregroundStyle(.orange)
-                                            }
-                                        }
-                                    }
-                                    .padding(10)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
-                                }
-                            }
-                            .padding(.horizontal, 14)
+                    }
+                    ForEach(vm.bubbles, content: bubble)
+                    if vm.isLoading {
+                        Label {
+                            Text("正在编排日程…")
+                        } icon: {
+                            ProgressView()
                         }
-                        .frame(maxHeight: 220)
-
-                        HStack {
-                            Button("放弃") {
-                                vm.clear()
-                                dismiss()
-                            }
-                            Spacer()
-                            Button("确认执行 (\(vm.selectedCount))") {
-                                Task {
-                                    let chosen = vm.drafts.filter(\.selected)
-                                    if chosen.contains(where: { $0.kind == .reminder }) && !eventStore.remindersAuthorized {
-                                        _ = await eventStore.requestRemindersAccess()
-                                    }
-                                    do {
-                                        try eventStore.applyBatchChanges(chosen)
-                                        vm.clear()
-                                        dismiss()
-                                    } catch {
-                                        vm.bubbles.append(.init(isUser: false, text: error.localizedDescription, isError: true))
-                                    }
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(vm.selectedCount == 0 || vm.isLoading)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 8)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    }
+                    if !vm.drafts.isEmpty {
+                        Text("待执行 \(vm.selectedCount)/\(vm.drafts.count) 项 · 可继续发话调整")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
+                        ForEach($vm.drafts) { draftCard($0) }
                     }
                 }
-
-                Divider()
-                HStack(spacing: 8) {
-                    TextField("输入日程或提醒事项…", text: $vm.inputText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { vm.sendPrompt(using: eventStore) }
-                    Button {
-                        vm.sendPrompt(using: eventStore)
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24))
-                    }
-                    .disabled(vm.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isLoading)
-                }
-                .padding(12)
+                .padding(16)
             }
+            .defaultScrollAnchor(.bottom)
+            .safeAreaInset(edge: .bottom) { bottomBar }
             .navigationTitle("AI 日程与提醒助手")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -362,6 +270,121 @@ struct MobileAIAssistantSheet: View {
                 }
             }
         }
+    }
+
+    private func bubble(_ bubble: MobileAIAssistantViewModel.Bubble) -> some View {
+        let tint: Color? = bubble.isError ? .red : (bubble.isUser ? .accentColor : nil)
+        return Text(bubble.text)
+            .font(.subheadline)
+            .foregroundStyle(bubble.isUser ? .white : .primary)
+            .textSelection(.enabled)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 16))
+            .frame(maxWidth: .infinity, alignment: bubble.isUser ? .trailing : .leading)
+            .padding(bubble.isUser ? .leading : .trailing, 40)
+    }
+
+    private func draftCard(_ item: Binding<AIProposedItem>) -> some View {
+        let draft = item.wrappedValue
+        return Button {
+            item.wrappedValue.selected.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: draft.selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(draft.selected ? Color.accentColor : Color.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        if draft.operation == .delete {
+                            Text("删除").font(.caption2.weight(.bold)).foregroundStyle(.red)
+                        }
+                        Text(draft.title)
+                            .font(.subheadline.weight(.medium))
+                            .strikethrough(draft.operation == .delete)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(draft.calendarTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Text(Self.timeText(draft)).font(.caption).foregroundStyle(.secondary)
+                    if !draft.conflictTitles.isEmpty {
+                        Text("与「\(draft.conflictTitles.joined(separator: "、"))」时间冲突")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            .padding(12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(in: .rect(cornerRadius: 16))
+        .opacity(draft.selected ? 1 : 0.6)
+        .accessibilityAddTraits(draft.selected ? .isSelected : [])
+    }
+
+    private var bottomBar: some View {
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                if !vm.drafts.isEmpty {
+                    HStack {
+                        Button("放弃") {
+                            vm.clear()
+                            dismiss()
+                        }
+                        .buttonStyle(.glass)
+                        Spacer()
+                        Button("确认执行 \(vm.selectedCount) 项", action: confirm)
+                            .buttonStyle(.glassProminent)
+                            .disabled(vm.selectedCount == 0 || vm.isLoading)
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField(vm.drafts.isEmpty ? "输入日程或提醒事项…" : "输入调整意见…", text: $vm.inputText)
+                        .submitLabel(.send)
+                        .onSubmit { vm.sendPrompt(using: eventStore) }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
+                        .glassEffect(in: .capsule)
+                    Button {
+                        vm.sendPrompt(using: eventStore)
+                    } label: {
+                        Image(systemName: "arrow.up").font(.body.weight(.semibold)).padding(4)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.circle)
+                    .disabled(!canSend)
+                    .accessibilityLabel("发送")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
+
+    private func confirm() {
+        Task {
+            let chosen = vm.drafts.filter(\.selected)
+            if chosen.contains(where: { $0.kind == .reminder }) && !eventStore.remindersAuthorized {
+                _ = await eventStore.requestRemindersAccess()
+            }
+            do {
+                try eventStore.applyBatchChanges(chosen)
+                vm.clear()
+                dismiss()
+            } catch {
+                vm.bubbles.append(.init(isUser: false, text: error.localizedDescription, isError: true))
+            }
+        }
+    }
+
+    private static func timeText(_ draft: AIProposedItem) -> String {
+        let day = draft.startDate.formatted(.dateTime.month().day().weekday(.abbreviated))
+        if draft.kind == .reminder || draft.isAllDay {
+            return draft.hasTime ? day + " " + draft.startDate.formatted(date: .omitted, time: .shortened) : day + " 全天"
+        }
+        return day + " " + draft.startDate.formatted(date: .omitted, time: .shortened)
+            + " – " + draft.endDate.formatted(date: .omitted, time: .shortened)
     }
 }
 

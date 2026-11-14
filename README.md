@@ -24,8 +24,9 @@
 
 ### 3. iOS / iPadOS 移动端 (`ItsycalMobile`)
 - 在同一 Xcode 工程中提供原生 iOS / iPadOS Target（`ItsycalMobile`），**零拷贝直接共享 `Itsycal/AIAssistant.swift`**（多协议客户端与 `JavaScriptCore` CodeMode 沙箱）。
-- **以月视图为主的自适应界面**：月视图参照桌面月视图小组件，格内直接显示日程与提醒；窄窗口上下分栏、宽窗口（iPad、iPhone 横屏）左右分栏，点击议程中的任一条目即可编辑，支持多级撤销和外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天、`⌘Z` 撤销）。
-- **桌面小组件**：直接复用 Mac 端的「本周日程」「本月日程」小组件代码（iPhone 月视图为大号、iPad 另有超大号）；因个人开发者团队不支持 App Group，iOS 小组件自行读取日历，显示全部日历、一周起始日跟随系统。
+- **以月视图为主的自适应界面**：月视图参照桌面月视图小组件，格内直接显示日程与提醒；iPhone 与 iPad 都是竖屏上下、横屏左右分栏，点击议程中的任一条目即可编辑，支持多级撤销和外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天、`⌘Z` 撤销）。
+- **桌面小组件**：直接复用 Mac 端的「本周日程」「本月日程」小组件代码（iPhone 月视图为大号、iPad 另有超大号）；为兼容免费开发者账号，iOS 小组件自行读取日历，显示全部日历、一周起始日跟随系统（见下文“开发者账号”）。
+- 图标与桌面端相同。
 - 具体架构与规格见 [iOS / iPadOS 端规格与设计契约](docs/IOS_APP_SPEC.md)。
 
 ## 系统要求
@@ -41,7 +42,9 @@ bash Scripts/install-week.sh
 
 仓库不含个人证书或私钥，任何人都用自己的 Apple 身份构建。签名配置、安装脚本的行为与排查见 [构建、安装与排查](docs/WEEK_WIDGET_SETUP.md)。
 
-安装后：
+**开发者账号**：普通 Apple ID（免费个人团队）即可构建全部功能。Mac 版长期可用；iPhone / iPad 版由 Xcode 直接安装（⌘R），免费签名 **7 天后失效**需重新安装，且 iOS 不能用 App Group。付费账号的签名 1 年有效、可分发。各情况的区别见[开发者账号与签名](docs/WEEK_WIDGET_SETUP.md#开发者账号与签名)，iOS 安装步骤见[安装到 iPhone / iPad](docs/WEEK_WIDGET_SETUP.md#安装到-iphone--ipad)。
+
+Mac 版安装后：
 
 1. 打开 Itsycal，允许日历（及提醒事项）访问。
 2. 在 `设置 › 事件` 中选择要显示的日历与提醒事项列表。
@@ -61,7 +64,7 @@ bash Scripts/install-week.sh
 bash Tests/check-week.sh
 ```
 
-检查使用内存合成数据，不读取或修改个人真实日历；覆盖小组件模型、AI 多协议客户端、CodeMode 沙箱、安装脚本以及 `EventCenter` 缓存与批量增删 Undo/Redo。
+检查使用内存合成数据，不读取或修改个人真实日历；覆盖小组件模型、AI 多协议客户端、CodeMode 沙箱、移动端日历规则与 iOS 小组件快照、安装脚本以及 `EventCenter` 缓存与批量增删 Undo/Redo。
 
 ## 上游同步与许可
 
