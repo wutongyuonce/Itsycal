@@ -74,11 +74,69 @@ struct MobileMonthView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 14) {
-            Text(eventStore.visibleMonth.formatted(.dateTime.year().month(.wide)))
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+        let currentYear = calendar.component(.year, from: eventStore.visibleMonth)
+        let currentMonth = calendar.component(.month, from: eventStore.visibleMonth)
+        let realYear = calendar.component(.year, from: Date())
+        let minYear = min(currentYear - 10, realYear - 10)
+        let maxYear = max(currentYear + 10, realYear + 10)
+
+        return HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                Menu {
+                    Picker("年份", selection: Binding(
+                        get: { currentYear },
+                        set: { newYear in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                eventStore.setYearMonth(year: newYear, month: currentMonth)
+                            }
+                        }
+                    )) {
+                        ForEach(minYear...maxYear, id: \.self) { year in
+                            Text("\(String(year))年").tag(year)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("\(String(currentYear))年")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("选择年份")
+
+                Menu {
+                    Picker("月份", selection: Binding(
+                        get: { currentMonth },
+                        set: { newMonth in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                eventStore.setYearMonth(year: currentYear, month: newMonth)
+                            }
+                        }
+                    )) {
+                        ForEach(1...12, id: \.self) { month in
+                            Text("\(month)月").tag(month)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("\(currentMonth)月")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("选择月份")
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+
             Spacer(minLength: 8)
             Button("今天") {
                 withAnimation(.easeInOut(duration: 0.2)) { eventStore.goToToday() }

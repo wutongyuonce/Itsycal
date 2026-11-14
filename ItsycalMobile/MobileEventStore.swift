@@ -137,6 +137,14 @@ final class MobileEventStore: ObservableObject {
         reloadVisibleRange()
     }
 
+    func setYearMonth(year: Int, month: Int) {
+        let cal = Calendar.autoupdatingCurrent
+        let target = MobileCalendarCore.date(bySettingYear: year, month: month, of: selectedDate, calendar: cal)
+        visibleMonth = target
+        selectedDate = target
+        reloadVisibleRange()
+    }
+
     func goToToday() {
         select(Date())
     }

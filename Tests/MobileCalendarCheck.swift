@@ -85,6 +85,14 @@ enum MobileCalendarCheck {
         assert(MobileCalendarCore.day(fromWidgetURL: URL(string: "itsycal-week://date/2026-02-30")!, calendar: cal) == nil)
         assert(MobileCalendarCore.day(fromWidgetURL: URL(string: "https://date/2026-11-16")!, calendar: cal) == nil)
 
-        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection and widget links")
+        // 7. Year/month jump clamps end-of-month and leap-day dates without overflowing
+        let jan31 = day(2026, 1, 31, 0)
+        assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2026, month: 2, of: jan31, calendar: cal), inSameDayAs: day(2026, 2, 28, 0)))
+        assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2024, month: 2, of: jan31, calendar: cal), inSameDayAs: day(2024, 2, 29, 0)))
+        let feb29 = day(2024, 2, 29, 0)
+        assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2025, month: 2, of: feb29, calendar: cal), inSameDayAs: day(2025, 2, 28, 0)))
+        assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2028, month: 5, of: nov2026, calendar: cal), inSameDayAs: day(2028, 5, 14, 0)))
+
+        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection, widget links and year/month jump")
     }
 }

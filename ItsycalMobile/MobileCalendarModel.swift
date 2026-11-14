@@ -112,6 +112,18 @@ public enum MobileCalendarCore {
         return weeks
     }
 
+    /// Returns a date in `(year, month)` preserving `date`'s day-of-month clamped
+    /// to the target month's length (e.g. Jan 31 -> Feb 28/29 instead of overflowing to March).
+    public static func date(bySettingYear year: Int, month: Int, of date: Date, calendar: Calendar) -> Date {
+        let clampedMonth = min(max(month, 1), 12)
+        guard let firstOfTarget = calendar.date(from: DateComponents(year: year, month: clampedMonth, day: 1)),
+              let dayRange = calendar.range(of: .day, in: .month, for: firstOfTarget) else {
+            return date
+        }
+        let targetDay = min(max(calendar.component(.day, from: date), dayRange.lowerBound), dayRange.count)
+        return calendar.date(from: DateComponents(year: year, month: clampedMonth, day: targetDay)) ?? firstOfTarget
+    }
+
     /// The day a widget link opens (`itsycal-week://date/yyyy-MM-dd`, built by
     /// `WeekDates.link` in the shared widget code), or nil for any other URL.
     public static func day(fromWidgetURL url: URL, calendar: Calendar) -> Date? {
