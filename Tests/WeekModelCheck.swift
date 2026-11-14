@@ -117,6 +117,25 @@ struct WeekModelCheck {
         """
         let decoded = try JSONDecoder().decode(WeekSnapshot.self, from: Data(written.utf8))
         assert(decoded.days["2026-10-19"]?.first?.title == "T")
-        print("WeekModel checks passed: week start, year boundary, DST, capacity, links, coverage, timezone, month grid, next-period view and snapshot format")
+
+        // Past-time dimming on today & timeline entries for today's upcoming event end times.
+        let todayNoon = instant("2026-10-25T12:00:00-07:00")
+        let endedMorning = WeekEvent(id: "m", title: "Morning", start: instant("2026-10-25T09:00:00-07:00").timeIntervalSince1970,
+                                     end: instant("2026-10-25T10:00:00-07:00").timeIntervalSince1970, allDay: false, spansDay: false,
+                                     startsHere: true, endsHere: false, continues: false, color: [1, 0, 0])
+        let afternoonEnd = instant("2026-10-25T15:00:00-07:00")
+        let upcomingAfternoon = WeekEvent(id: "a", title: "Afternoon", start: instant("2026-10-25T14:00:00-07:00").timeIntervalSince1970,
+                                          end: afternoonEnd.timeIntervalSince1970, allDay: false, spansDay: false,
+                                          startsHere: true, endsHere: false, continues: false, color: [0, 1, 0])
+        assert(endedMorning.isEndedOnDay(at: todayNoon) && !upcomingAfternoon.isEndedOnDay(at: todayNoon))
+        assert(upcomingAfternoon.isEndedOnDay(at: afternoonEnd))
+        var snapWithToday = good
+        var daysWithToday = good.days
+        daysWithToday["2026-10-25"] = [endedMorning, upcomingAfternoon]
+        snapWithToday = WeekSnapshot(version: 2, generatedAt: good.generatedAt, timeZone: good.timeZone, start: good.start, end: good.end, status: "ready", weekStart: 1, days: daysWithToday)
+        let timelineWithEvents = WeekDates.timelineDates(from: todayNoon, calendar: calendar, snapshot: snapWithToday)
+        assert(timelineWithEvents.contains(afternoonEnd), "Timeline must include today's upcoming event end time so it dims on time")
+
+        print("WeekModel checks passed: week start, year boundary, DST, capacity, links, coverage, timezone, month grid, next-period view, past-event dimming and snapshot format")
     }
 }

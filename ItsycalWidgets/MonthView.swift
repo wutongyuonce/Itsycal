@@ -57,6 +57,7 @@ struct MonthView: View {
 
     private func cell(_ day: Date, events: [WeekEvent], height: CGFloat) -> some View {
         let inMonth = calendar.isDate(day, equalTo: state.shown, toGranularity: .month)
+        let today = calendar.isDate(day, inSameDayAs: state.now)
         let past = day < calendar.startOfDay(for: state.now)
         let rows = state.issue == nil ? MonthLayout.eventRows(cellHeight: height) : 0
         let visible = min(events.count, rows)
@@ -72,7 +73,7 @@ struct MonthView: View {
                 }
                 .padding(.bottom, MonthLayout.numberGap)
                 ForEach(Array(events.prefix(visible).enumerated()), id: \.offset) { _, event in
-                    chip(event)
+                    chip(event, dim: today && event.isEndedOnDay(at: state.now))
                 }
                 Spacer(minLength: 0)
             }
@@ -97,7 +98,7 @@ struct MonthView: View {
     }
 
     /// All-day events as a tinted block, timed events as a colour bar and title.
-    private func chip(_ event: WeekEvent) -> some View {
+    private func chip(_ event: WeekEvent, dim: Bool) -> some View {
         HStack(spacing: 3) {
             if !event.allDay {
                 RoundedRectangle(cornerRadius: 1).fill(event.tint).frame(width: 2, height: 9)
@@ -110,5 +111,6 @@ struct MonthView: View {
         .background {
             if event.allDay { RoundedRectangle(cornerRadius: 3).fill(event.tint.opacity(0.25)) }
         }
+        .opacity(dim ? 0.5 : 1)
     }
 }

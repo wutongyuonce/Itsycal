@@ -21,6 +21,11 @@ struct WeekEvent: Codable {
         let time = formatter.string(from: Date(timeIntervalSince1970: start))
         return continues ? time + " →" : time
     }
+
+    /// True when this is a timed item on its ending day and its time has passed at `now`.
+    func isEndedOnDay(at now: Date) -> Bool {
+        !allDay && !spansDay && !continues && end <= now.timeIntervalSince1970
+    }
 }
 
 enum WidgetShared {
@@ -191,12 +196,31 @@ enum WeekDates {
         min(4, max(0, Int((height - reservedHeight(compact: compact)) / eventPitch(compact: compact))))
     }
 
-    /// Now, each of the next 14 local midnights and, if later than now, the
-    /// moment the next-period view expires.
-    static func timelineDates(from date: Date, calendar: Calendar, navigation: PeriodNavigation? = nil) -> [Date] {
+    /// Now, each of the next 14 local midnights, any upcoming event/reminder end
+    /// times later today, and, if later than now, the moment the next-period view expires.
+    static func timelineDates(
+        from date: Date,
+        calendar: Calendar,
+        navigation: PeriodNavigation? = nil,
+        snapshot: WeekSnapshot? = nil
+    ) -> [Date] {
         let midnight = calendar.startOfDay(for: date)
-        var dates = [date] + (1...14).map { calendar.date(byAdding: .day, value: $0, to: midnight)! }
-        if let until = navigation?.until, until > date { dates.append(until) }
+        let nextMidnight = calendar.date(byAdding: .day, value: 1, to: midnight)!
+        var dates: Set<Date> = [date]
+        for offset in 1...14 {
+            dates.insert(calendar.date(byAdding: .day, value: offset, to: midnight)!)
+        }
+        if let until = navigation?.until, until > date {
+            dates.insert(until)
+        }
+        if let todayEvents = snapshot?.days[key(date, calendar: calendar)] {
+            for event in todayEvents where !event.allDay && !event.spansDay && !event.continues {
+                let endDate = Date(timeIntervalSince1970: event.end)
+                if endDate > date && endDate < nextMidnight {
+                    dates.insert(endDate)
+                }
+            }
+        }
         return dates.sorted()
     }
 }

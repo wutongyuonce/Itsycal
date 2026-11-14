@@ -97,7 +97,7 @@ struct WeekView: View {
         .opacity(past ? 0.5 : 1)
     }
 
-    private func eventRow(_ event: WeekEvent) -> some View {
+    private func eventRow(_ event: WeekEvent, dim: Bool) -> some View {
         HStack(alignment: .top, spacing: compact ? 3 : 4) {
             RoundedRectangle(cornerRadius: 1)
                 .fill(event.tint)
@@ -122,6 +122,7 @@ struct WeekView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: WeekDates.eventPitch(compact: compact), alignment: .top)
+        .opacity(dim ? 0.5 : 1)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

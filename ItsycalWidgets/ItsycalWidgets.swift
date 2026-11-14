@@ -27,7 +27,7 @@ struct PeriodProvider: TimelineProvider {
         let now = Date()
         currentSnapshot(at: now) { snapshot in
             let navigation = PeriodNavigation.load(period)
-            let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation)
+            let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation, snapshot: snapshot)
                 .map { PeriodEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
             completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(3600))))
         }
