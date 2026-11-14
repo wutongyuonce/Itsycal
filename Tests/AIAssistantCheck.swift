@@ -113,6 +113,7 @@ enum AIAssistantCheck {
             ],
             existingEvents: [
                 AIExistingEventSnapshot(id: "ev-weekly-1", title: "产品周会", start: existingStart, end: existingEnd, isAllDay: false, calendarID: "cal-work", calendarTitle: "工作", kind: .event),
+                AIExistingEventSnapshot(id: "rem-old-1", title: "报销发票", start: now, end: now, isAllDay: true, calendarID: "rem-todo", calendarTitle: "待办", kind: .reminder),
             ]
         )
 
@@ -138,11 +139,12 @@ enum AIAssistantCheck {
             list: '待办'
         });
         calendar.proposeDelete({ id: existing[0].id, span: 'this' });
+        calendar.proposeDelete({ title: '报销发票', kind: 'reminder' });
         calendar.reply(`已根据 ${ctx.today} 生成计划（检测到当天已有 ${existing.length} 个日程）`);
         """
 
         let result = try AICodeModeRunner.run(script: script, host: host)
-        assert(result.items.count == 5, "Should propose 3 events, 1 reminder, and 1 delete")
+        assert(result.items.count == 6, "Should propose 3 events, 1 reminder, and 2 deletes (event + reminder)")
         assert(result.reply.contains("2026-11-14") && result.reply.contains("已有 1 个日程"))
 
         let firstEvent = result.items[0]
@@ -160,6 +162,10 @@ enum AIAssistantCheck {
         let deleted = result.items[4]
         assert(deleted.operation == .delete && deleted.kind == .event)
         assert(deleted.targetIdentifier == "ev-weekly-1" && deleted.title == "产品周会")
+
+        let deletedRem = result.items[5]
+        assert(deletedRem.operation == .delete && deletedRem.kind == .reminder)
+        assert(deletedRem.targetIdentifier == "rem-old-1" && deletedRem.title == "报销发票")
 
         // Cap check: proposing 100 items is capped at maxProposedItems (50).
         let capScript = """

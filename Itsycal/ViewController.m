@@ -1785,6 +1785,23 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
             }
         }
     }
+    for (EventInfo *info in [_ec remindersDueBeforeDate:[NSDate distantFuture]]) {
+        if (!info.reminder) continue;
+        NSString *remID = info.reminder.calendarItemIdentifier ?: @"";
+        if (remID.length && [seenEventIDs containsObject:remID]) continue;
+        if (remID.length) [seenEventIDs addObject:remID];
+        NSDate *due = info.dueDate ?: info.date ?: NSDate.date;
+        [items addObject:[[AIExistingItemObjC alloc]
+            initWithIdentifier:remID
+                         title:info.reminder.title ?: @""
+                     startDate:due
+                       endDate:due
+                      isAllDay:info.isAllDay
+                    calendarID:info.reminder.calendar.calendarIdentifier ?: @""
+                 calendarTitle:info.reminder.calendar.title ?: @""
+                         color:info.reminder.calendar.color ?: NSColor.systemBlueColor
+                    isReminder:YES]];
+    }
     return items;
 }
 
@@ -1983,6 +2000,11 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     if (item.targetIdentifier.length > 0) {
         EKReminder *byID = [_ec reminderWithIdentifier:item.targetIdentifier];
         if (byID) return byID;
+    }
+    for (EventInfo *info in [_ec remindersDueBeforeDate:[NSDate distantFuture]]) {
+        if (info.reminder && [info.reminder.title isEqualToString:item.title]) {
+            return info.reminder;
+        }
     }
     for (NSDate *day in _filteredEventsForDate) {
         for (EventInfo *info in _filteredEventsForDate[day]) {

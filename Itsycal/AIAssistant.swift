@@ -676,14 +676,18 @@ public enum AICodeModeRunner {
             let spanStr = ((dict["span"] as? String) ?? "this").lowercased()
             let deleteFuture = spanStr == "future" || spanStr == "all"
 
+            let rawKind = ((dict["kind"] as? String) ?? "").lowercased()
+            let wantKind: AIProposedKind? = rawKind == "reminder" ? .reminder : (rawKind == "event" ? .event : nil)
+
             var matched: AIExistingEventSnapshot?
             if let rawID, !rawID.isEmpty {
                 matched = host.existingEvents.first(where: { $0.id == rawID })
             }
             if matched == nil, let rawTitle, !rawTitle.isEmpty {
                 let candidates = host.existingEvents.filter {
-                    $0.title.caseInsensitiveCompare(rawTitle) == .orderedSame ||
-                    $0.title.localizedCaseInsensitiveContains(rawTitle)
+                    (wantKind == nil || $0.kind == wantKind) &&
+                    ($0.title.caseInsensitiveCompare(rawTitle) == .orderedSame ||
+                     $0.title.localizedCaseInsensitiveContains(rawTitle))
                 }
                 if let targetDate = parsedStart?.date {
                     matched = candidates.first(where: { calFormat.isDate($0.start, inSameDayAs: targetDate) }) ?? candidates.first
