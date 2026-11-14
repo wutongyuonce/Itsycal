@@ -556,9 +556,9 @@ final class MobileEventStore: ObservableObject {
         rem.dueDateComponents = due
         if updateRecurrence {
             let rule = Self.makeRecurrenceRule(frequency: item.repeatFrequency, endDate: item.repeatEndDate)
-            if rule != nil { rem.startDateComponents = due }
             rem.recurrenceRules = rule.map { [$0] }
         }
+        rem.startDateComponents = rem.hasRecurrenceRules ? due : nil
         if let minutes = item.alertMinutesBefore {
             rem.alarms = [EKAlarm(absoluteDate: item.startDate.addingTimeInterval(TimeInterval(-minutes * 60)))]
         }
@@ -649,34 +649,40 @@ final class MobileEventStore: ObservableObject {
             calendars: descriptors,
             existingEvents: existing,
             currentDrafts: currentDrafts,
-            queryRangeProvider: { start, end in
-                guard isCalAuth, start < end else { return [] }
-                let cals = storeRef.calendars(for: .event)
-                guard !cals.isEmpty else { return [] }
-                let cal = Calendar.autoupdatingCurrent
+            queryRangeProvider: { [existing] start, end in
+                guard start < end else { return [] }
                 var snaps: [AIExistingEventSnapshot] = []
-                var seenKeys = Set<String>()
-                var chunkStart = start
-                // EventKit truncates a single query to 4 years.
-                while chunkStart < end {
-                    let chunkEnd = min(cal.date(byAdding: .year, value: 3, to: chunkStart) ?? end, end)
-                    let pred = storeRef.predicateForEvents(withStart: chunkStart, end: chunkEnd, calendars: cals)
-                    for ev in storeRef.events(matching: pred) {
-                        let id = Self.identifier(of: ev)
-                        guard seenKeys.insert("\(id)-\(ev.startDate.timeIntervalSince1970)").inserted else { continue }
-                        snaps.append(AIExistingEventSnapshot(
-                            id: id,
-                            title: ev.title ?? "",
-                            start: ev.startDate,
-                            end: ev.endDate,
-                            isAllDay: ev.isAllDay,
-                            calendarID: ev.calendar.calendarIdentifier,
-                            calendarTitle: ev.calendar.title,
-                            colorRGB: ev.calendar.rgb,
-                            kind: .event
-                        ))
+                if isCalAuth {
+                    let cals = storeRef.calendars(for: .event)
+                    if !cals.isEmpty {
+                        let cal = Calendar.autoupdatingCurrent
+                        var seenKeys = Set<String>()
+                        var chunkStart = start
+                        // EventKit truncates a single query to 4 years.
+                        while chunkStart < end {
+                            let chunkEnd = min(cal.date(byAdding: .year, value: 3, to: chunkStart) ?? end, end)
+                            let pred = storeRef.predicateForEvents(withStart: chunkStart, end: chunkEnd, calendars: cals)
+                            for ev in storeRef.events(matching: pred) {
+                                let id = Self.identifier(of: ev)
+                                guard seenKeys.insert("\(id)-\(ev.startDate.timeIntervalSince1970)").inserted else { continue }
+                                snaps.append(AIExistingEventSnapshot(
+                                    id: id,
+                                    title: ev.title ?? "",
+                                    start: ev.startDate,
+                                    end: ev.endDate,
+                                    isAllDay: ev.isAllDay,
+                                    calendarID: ev.calendar.calendarIdentifier,
+                                    calendarTitle: ev.calendar.title,
+                                    colorRGB: ev.calendar.rgb,
+                                    kind: .event
+                                ))
+                            }
+                            chunkStart = chunkEnd
+                        }
                     }
-                    chunkStart = chunkEnd
+                }
+                for rem in existing where rem.kind == .reminder && rem.start >= start && rem.start < end {
+                    snaps.append(rem)
                 }
                 return snaps
             }
@@ -739,7 +745,8 @@ final class MobileEventStore: ObservableObject {
               rule.daysOfTheYear == nil,
               rule.weeksOfTheYear == nil,
               rule.monthsOfTheYear == nil,
-              rule.setPositions == nil else { return nil }
+              rule.setPositions == nil,
+              (rule.recurrenceEnd?.occurrenceCount ?? 0) == 0 else { return nil }
         switch (rule.frequency, rule.interval) {
         case (.daily, 1): return .daily
         case (.weekly, 1): return .weekly

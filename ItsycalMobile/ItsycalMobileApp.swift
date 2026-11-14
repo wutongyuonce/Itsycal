@@ -431,6 +431,13 @@ struct MobileSettingsSheet: View {
                             cacheSize = "已清理 (0 KB)"
                         }
                     }
+
+                    if !aiConfig.apiKey.isEmpty {
+                        Button("清除 Keychain 中的 API Key", role: .destructive) {
+                            aiConfig.apiKey = ""
+                            AIConfigStore.shared.save(aiConfig)
+                        }
+                    }
                 }
 
                 Section("日历显示偏好") {

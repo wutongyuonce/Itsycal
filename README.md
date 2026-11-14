@@ -10,7 +10,9 @@
 
 ### 1. CodeMode AI 日程与提醒事项助手
 - **多协议支持**：在 `设置 › AI` 中支持配置 **OpenAI Compatible**（OpenAI / DeepSeek / 硅基流动 / OpenRouter / 本地 Ollama 等）、**Anthropic (Claude)** 与 **Google Gemini** 的 `API URL`、`Model` 与 `API Key`（API Key 仅加密保存在 macOS Keychain 中）。
-- **自然语言批量增删（事件 & 提醒事项）**：在主窗口点击左下角 `✨` 按钮或按 `⌘K` 即可在主窗口左侧拉起 AI 助手小窗，支持用自然语言创建、按复杂周期批量排期或删除**日历事件（`EKEvent`）**与**提醒事项（`EKReminder`）**。
+- **自然语言批量增删与手动新建/编辑（事件 & 提醒事项）**：
+  - 在主窗口点击左下角 `✨` 按钮或按 `⌘K` 即可在主窗口左侧拉起 AI 助手小窗，支持用自然语言创建、按复杂周期批量排期或删除**日历事件（`EKEvent`）**与**提醒事项（`EKReminder`）**。
+  - 点击左下角 `+` 按钮（或按 `⌘N`）可在表单顶部切换新建「日程」或「提醒事项」；点击议程列表中的任意日程或提醒事项（或右键菜单）可直接**编辑**或**删除**，均支持 `⌘Z` / `⇧⌘Z` 撤销与重做（详见 [Mac 端新建与编辑规格](docs/MAC_EDITING_SPEC.md)）。
 - **JavaScriptCore 沙箱与全量历史查询**：AI 通过内置内存隔离的 `JSContext` 沙箱执行工具调用，支持跨任意历史/未来年份查询已有日程与提醒、自动检测时间冲突。
 - **可视化确认清单与多级撤销**：所有待新增或待删除的日程/提醒都会先在对话小窗中生成预览卡片（支持单项勾选/取消、冲突提醒、或继续发话微调）；点击**「确认执行」**后才原子化提交到系统日历，并在主窗口支持按 `⌘Z` / `⇧⌘Z` 多级撤销与重做。
 - **缓存管理与干净卸载**：`设置 › AI` 支持查看并一键清理会话历史与缓存；`设置 › 关于` 提供**「干净卸载 Itsycal…」**按钮，可一键清理开机启动项、偏好设置、Keychain 密钥、AI 缓存及小组件容器并移入废纸篓。具体契约见 [AI 助手规格与设计契约](docs/AI_ASSISTANT_SPEC.md)。
@@ -75,6 +77,7 @@ bash Tests/check-week.sh
 更多细节：
 
 - [AI 自然语言日程助手规格与设计契约](docs/AI_ASSISTANT_SPEC.md)
+- [Mac 端新建与编辑日程、提醒事项规格](docs/MAC_EDITING_SPEC.md)
 - [iOS / iPadOS 端规格与设计契约](docs/IOS_APP_SPEC.md)
 - [桌面小组件行为与架构说明](docs/WEEK_WIDGET_SPEC.md)
 - [安装、刷新排查与真机验收](docs/WEEK_WIDGET_SETUP.md)
