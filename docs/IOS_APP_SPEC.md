@@ -1,58 +1,78 @@
-# ItsycalMobile：iOS / iPadOS 端规格与架构设计契约
+# ItsycalMobile：iOS / iPadOS 端规格与设计
 
-本文是 Itsycal 跨端演进（Phase 2：iOS / iPadOS 端封装日历与 AI 助手应用 `ItsycalMobile`）的现行行为契约与模块架构设计。代码与本文冲突时以代码为事实，并同步修正本文。
+本文是 `ItsycalMobile`（iOS / iPadOS 日历与 AI 助手应用）的现行行为契约与模块设计。代码与本文冲突时以代码为事实，并同步修正本文。
 
-## Part A：SPEC —— 系统必须满足什么
+## 1. 范围
 
-### 1. 背景与问题
+- 与 macOS 端同仓库：`Itsycal.xcodeproj` 中的 `ItsycalMobile` Target，直接编译共享的 `Itsycal/AIAssistant.swift`（AI 配置、多协议客户端、`JavaScriptCore` CodeMode 沙箱），不复制代码。
+- 数据全部来自系统 EventKit（日历与提醒事项），不另建存储。
+- 非目标：不支持 Mac Catalyst 运行；暂无 iOS 桌面小组件。
 
-- **当前用户可见行为**：Itsycal 原本仅作为 macOS 菜单栏应用存在，其标志性的“上方紧凑月历网格 + 下方多日议程与提醒混排列表 + CodeMode AI 自然语言日程助手”无法在 iPhone 与 iPad 上使用。
-- **工程组织决策（同仓库多 Target vs 新建独立仓库）**：
-  - `Itsycal/AIAssistant.swift`（AI 配置存储、Keychain、多协议 LLM 客户端、`JavaScriptCore` CodeMode 沙箱执行器）以及日期网格算法完全只依赖跨平台的 `Foundation`、`Security`、`JavaScriptCore`。
-  - **在同一个 `Itsycal.xcodeproj` 中新增 `ItsycalMobile` (iOS/iPadOS) Target** 可以 100% 零拷贝共享 `Itsycal/AIAssistant.swift`，避免跨仓库同步双份 AI 引擎与协议代码，同时互不干扰 macOS 主应用的 AppKit 编译配置。
+## 2. 用户可见行为
 
-### 2. 目标行为
+### 布局
 
-1. **自适应双端布局（iPhone & iPad）**：
-   - **iPhone（紧凑单栏）**：延续 macOS 菜单栏弹窗的经典上下分栏结构——上方为紧凑月历网格（支持切换月份、显示周数、彩色事件圆点、高亮今日与选中日期），下方为议程与提醒事项混排列表（含已过期提醒折叠分组、按天分组的日程、会议一键加入按钮），底部工具栏提供“今天”、“新建 (`+`)”、“AI 助手 (`✨`)”与“设置”。
-   - **iPad（宽屏自适应双栏）**：左侧固定展示月历网格与快捷操作栏，右侧展示宽屏多日议程详情与内嵌/抽屉式 AI 助手面板，并支持外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天）。
-2. **原生 EventKit 日历与提醒事项完整接入**：
-   - 支持请求日历与提醒事项完整权限、按日历/提醒列表勾选过滤、跨天事件切分、重复提醒展开、勾选/取消完成提醒事项、手动新建事件/提醒事项，以及 `UndoManager` 多级撤销与重做。
-3. **共享 CodeMode AI 自然语言助手**：
-   - 直接共享 `Itsycal/AIAssistant.swift`，支持在 iOS/iPadOS 端通过自然语言批量创建或删除日历事件与提醒事项、按任意历史/未来区间（自动 3 年分片）查询 EventKit、展示待执行确认卡片清单、多轮对话微调、以及会话缓存清理。
+- **按实际窗口尺寸选布局**，不看 size class：
+  - 宽窗口（宽 ≥ 700pt，或横屏且宽 ≥ 560pt：iPad 全屏/宽分屏、iPhone 横屏）：月视图在左，议程列在右，宽为窗口的 30%（限制在 260–380pt）。
+  - 窄窗口（iPhone 竖屏、Slide Over、窄分屏）：月视图在上占 60% 高度，议程在下。
+- 顶栏右侧依次为：撤销（`⌘Z`）、新建（`⌘N`）、AI 助手（`⌘K`）、设置。
+- 日历与提醒事项列表的显示勾选只在「设置」中，主界面不放筛选列表。
 
-### 3. 产品 RULE 与不变量
+### 月视图（参照桌面月视图小组件）
 
-| ID | Rule / invariant | 适用场景 | 违反时的结果 |
-|---|---|---|---|
-| M1 | `Itsycal/AIAssistant.swift` 保持纯跨平台依赖（`Foundation` / `Security` / `JavaScriptCore`），同时被 `Itsycal`（macOS）与 `ItsycalMobile`（iOS/iPadOS）编译，严禁复制成两份文件。 | 双端编译与演进 | 杜绝双端 AI 协议或沙箱逻辑漂移 |
-| M2 | 月历网格（4–6 周整行计算）、每日事件与提醒排序规则（全天在前、随后按开始时间与标题排序、未完成提醒在前）与 macOS 端保持一致。 | 月历与议程展示 | 跨端视觉与日程顺序一致 |
-| M3 | 批量增删事务提交同样采用两阶段提交（逐项 `commit:false` + 最终一次 `store.commit()`），失败时 `store.reset()` 回滚，并注册 `UndoManager` 撤销栈。 | AI 批量执行与手动新建/删除 | 保证原子性与多级撤销 |
+- 显示覆盖整月的完整周（4–6 行），一周起始日跟随设置，可选显示周数。
+- 标题行：年月（窄屏自动缩小）、「今天」按钮（`⌘T`，回到今天所在月并选中今天）、上/下月（`⌘←` / `⌘→`）；在网格上左右滑动也可切换月份。
+- 每格左上角为日期，今天用强调色填充；选中日浅色底；非本月日期淡化到 30%，已过去日期 55%。
+- 格内按可用高度显示条目：全天日程为着色块，定时日程为色条加标题，提醒事项为圆圈加标题（已完成的半透明）；放不下的条目以 `+N` 显示在日期旁。格子矮到放不下任何条目时，改为最多 3 个日历色点。
+- 点击某天即选中，议程跟随更新；点击其他月份的日期会切到该月。
 
-### 4. 验收标准
+### 议程
 
-| Obligation | 可观察证据 | 验证层级 |
+- 从选中日开始，显示设置中的天数（1/3/7/14/31 天），按天分组，组内排序与 macOS 端一致；选中今天时顶部显示可折叠的「已过期」提醒。
+- 提醒前的圆圈可勾选完成；含视频会议链接的日程显示加入按钮；左滑删除（只读日历不提供，重复日程先询问「仅此日程」或「所有将来日程」）。
+- **点击任一日程或提醒事项进入编辑**。
+
+### 新建与编辑
+
+- 同一表单：类型（仅新建时可选）、标题、位置（日程）、全天、开始/结束（或提醒日期）、重复、日历/列表、备注；已有条目可在表单底部删除。
+- 新建日程默认从今天的下一个整点开始（其他选中日为 9:00），时长 1 小时，日历为系统默认可写日历。修改开始时间时保持时长。
+- 重复日程保存或删除时询问「仅此日程」或「所有将来日程」；修改了重复频率时不询问，直接作用于整个系列。
+- 只读日历（订阅、节假日、生日）或已不存在的条目以只读方式打开，不显示保存和删除。
+- 重复规则超出选择器能表达的（如每周多天）显示为「自定义」并原样保留；只有改了重复频率才会重写规则。
+
+### 撤销
+
+- 新建、编辑、删除、勾选提醒、AI 批量执行都可通过顶栏按钮或 `⌘Z` 多级撤销；撤销栈只在本次运行期间有效，不提供重做入口。
+- 目标条目已在别处被删除或修改导致撤销、左滑删除失败时，弹窗告知原因，不会改到同名的其他条目。
+- 已知限制：撤销「删除所有将来日程」时，重复规则按选择器能表达的频率和结束日期恢复，自定义规则或按次数结束的规则会被简化。
+
+## 3. 规则与不变量
+
+| ID | 规则 | 权威位置 |
 |---|---|---|
-| MO1：移动端月历网格、跨日拆分与每日混排排序逻辑 | 给定任意月份、一周起始日与跨日/全天/提醒数据，网格行数与每日排序结果准确 | Owner unit test (`Tests/MobileCalendarCheck.swift`) |
-| MO2：macOS 与 iOS/iPadOS 双端共享编译通过 | `bash Tests/check-week.sh` 通过，且 `xcodebuild -scheme Itsycal` (macOS) 与 `xcodebuild -scheme ItsycalMobile -destination 'generic/platform=iOS Simulator'` 均编译成功 | Workspace build check |
+| M1 | `AIAssistant.swift` 只依赖 `Foundation` / `Security` / `JavaScriptCore`，被两端共同编译 | `Itsycal/AIAssistant.swift` |
+| M2 | 月网格、跨日拆分、同日排序、月格可容纳条目数各只有一处实现 | `MobileCalendarCore` |
+| M3 | 所有写入经 `MobileEventStore`：批量增删一次提交，失败 `reset()` 回滚；每次成功写入只登记一个逆操作作为撤销 | `MobileEventStore` |
+| M4 | 定位条目时优先匹配「标识符 + 开始时间」的那一次发生，避免重复日程误改第一次；只有没有标识符的 AI 提议才按标题匹配 | `MobileEventStore.resolveEvent` / `resolveReminder` |
+| M5 | 提醒事项的抓取结果只在仍是最新一次刷新时生效，快速切换日期不会被旧结果覆盖 | `MobileEventStore.reloadVisibleRange` |
 
-## Part B：设计报告 —— module 如何满足 SPEC
-
-### 1. 模块与文件结构
+## 4. 模块
 
 ```text
-Itsycal/AIAssistant.swift          <── macOS 与 iOS/iPadOS 共同编译（零重复）
+Itsycal/AIAssistant.swift          两端共享的 AI 引擎
 ItsycalMobile/
-  ├── Info.plist                   <── iOS/iPadOS 权限声明与自适应配置
-  ├── MobileCalendarModel.swift    <── 纯算法层：月历网格计算、跨日拆分、每日排序（可独立单测）
-  ├── MobileEventStore.swift       <── iOS/iPadOS EventKit 管理器（日历/提醒拉取、3年分片查询、批量原子提交与 Undo）
-  └── ItsycalMobileApp.swift       <── SwiftUI 视图层：iPhone 上下分栏 / iPad 左右双栏、新建表单、AI 助手抽屉、设置页
+  MobileCalendarModel.swift        纯算法：月网格、跨日拆分、同日排序、月格条目布局、会议链接识别
+  MobileEventStore.swift           EventKit：权限、抓取、导航、编辑、批量事务、撤销、AI 宿主上下文
+  MobileCalendarViews.swift        月视图与议程视图
+  MobileItemEditor.swift           新建/编辑/删除表单
+  ItsycalMobileApp.swift           入口、根布局、AI 助手面板、设置
 ```
 
-### 2. Authority、interface 与 seam
+## 5. 验证
 
-| Rule/state/error/resource | Authority module | Interface/seam | Callers | Evidence |
-|---|---|---|---|---|
-| AI 配置、多协议客户端、CodeMode 沙箱 | `Itsycal/AIAssistant.swift` | `AIConfigStore`, `AILLMClient`, `AICodeModeRunner`, `AISessionStore` | macOS & iOS UI | `Tests/AIAssistantCheck.swift` |
-| 移动端月历网格、跨日区间拆分与每日排序 | `MobileCalendarCore` (`ItsycalMobile/MobileCalendarModel.swift`) | `monthGrid(...)`, `expandAndSortDayItems(...)` | `MobileEventStore`, `ItsycalMobileApp` | `Tests/MobileCalendarCheck.swift` |
-| 移动端 EventKit 权限、查询与批量事务 | `MobileEventStore` (`ItsycalMobile/MobileEventStore.swift`) | `applyBatchChanges(...)`, `queryItems(from:to:)` | `ItsycalMobileApp` | iOS Simulator build |
+| 义务 | 证据 |
+|---|---|
+| 月网格、跨日拆分、排序、月格布局、会议链接 | `Tests/MobileCalendarCheck.swift`（`bash Tests/check-week.sh`） |
+| 共享 AI 引擎 | `Tests/AIAssistantCheck.swift` |
+| iOS 编译 | `xcodebuild -project Itsycal.xcodeproj -target ItsycalMobile -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build` |
+| 布局、编辑、撤销等交互 | 真机验收（iPhone 竖/横屏，iPad 全屏、分屏、Slide Over） |

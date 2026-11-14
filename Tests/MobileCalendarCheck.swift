@@ -66,11 +66,19 @@ enum MobileCalendarCheck {
         let sorted = MobileCalendarCore.sortItemsOnDay([timedLate, timedDoneRem, spanning, realAllDay, timedOpenRem])
         assert(sorted.map(\.id) == ["5", "4", "3", "2", "1"])
 
-        // 4. Meeting link detection
+        // 4. Month cell chip layout: rows that fit, overflow count, dots when too short
+        // 100pt = 3 inset + 20 number + 2 spacing + 5 rows of (14 chip + 1 spacing)
+        let tall = MobileCalendarCore.chipLayout(cellHeight: 100, itemCount: 7)
+        assert(tall.visible == 5 && tall.hidden == 2)
+        assert(MobileCalendarCore.chipLayout(cellHeight: 100, itemCount: 2) == (visible: 2, hidden: 0))
+        assert(MobileCalendarCore.chipLayout(cellHeight: 30, itemCount: 3) == (visible: 0, hidden: 3))
+        assert(MobileCalendarCore.chipLayout(cellHeight: 0, itemCount: 0) == (visible: 0, hidden: 0))
+
+        // 5. Meeting link detection
         let zoomURL = MobileCalendarCore.detectMeetingURL(in: ["Room 302", "Join https://us02web.zoom.us/j/123456789 now"])
         assert(zoomURL?.host == "us02web.zoom.us")
         assert(MobileCalendarCore.detectMeetingURL(in: ["https://example.com/not-a-meeting"]) == nil)
 
-        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting and meeting detection")
+        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout and meeting detection")
     }
 }

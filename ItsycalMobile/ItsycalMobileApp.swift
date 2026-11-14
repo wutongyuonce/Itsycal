@@ -1,5 +1,4 @@
 import Combine
-import EventKit
 import SwiftUI
 
 @main
@@ -16,77 +15,88 @@ struct ItsycalMobileApp: App {
     }
 }
 
-// MARK: - Root Adaptive Layout (iPhone Compact Column vs iPad Split View)
+// MARK: - Root Layout
 
+/// The month view leads. Wide windows (iPad, iPhone landscape) put a ~30%
+/// agenda column beside it; narrow ones (iPhone portrait, Slide Over, narrow
+/// Split View) stack it under a month view taking 60% of the height. The
+/// choice follows the actual window size, not the size class, so a regular-
+/// width but narrow iPad window never squeezes the month view.
 struct MobileRootView: View {
     @ObservedObject var eventStore: MobileEventStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var showNewSheet = false
+    @State private var editorRequest: EditorRequest?
     @State private var showAISheet = false
     @State private var showSettingsSheet = false
-    @State private var overdueExpanded = true
+
+    private struct EditorRequest: Identifiable {
+        let id = UUID()
+        let item: MobileAgendaItem?
+        let editable: MobileEventStore.EditableItem?
+    }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if horizontalSizeClass == .regular {
-                    iPadSplitLayout
+            GeometryReader { geometry in
+                let size = geometry.size
+                if size.width >= 700 || (size.width > size.height && size.width >= 560) {
+                    HStack(spacing: 0) {
+                        MobileMonthView(eventStore: eventStore)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        Divider()
+                        agenda
+                            .frame(width: min(380, max(260, size.width * 0.3)))
+                    }
                 } else {
-                    iPhoneCompactLayout
+                    VStack(spacing: 0) {
+                        MobileMonthView(eventStore: eventStore)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 8)
+                            .frame(height: size.height * 0.6)
+                        Divider()
+                        agenda
+                    }
                 }
             }
-            .navigationTitle("Itsycal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItemGroup(placement: .automatic) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            let now = Date()
-                            eventStore.selectedDate = now
-                            eventStore.visibleMonth = now
-                            eventStore.reloadVisibleRange()
-                        }
-                    } label: {
-                        Image(systemName: "calendar.circle")
-                    }
-                    .help("回到今天")
-                    .keyboardShortcut("t", modifiers: [.command])
-
-                    Button {
-                        eventStore.undoManager.undo()
+                        eventStore.undo()
                     } label: {
                         Image(systemName: "arrow.uturn.backward")
                     }
-                    .disabled(!eventStore.undoManager.canUndo)
-                    .help("撤销")
+                    .disabled(!eventStore.canUndo)
+                    .keyboardShortcut("z", modifiers: .command)
+                    .accessibilityLabel("撤销")
 
                     Button {
-                        showNewSheet = true
+                        editorRequest = EditorRequest(item: nil, editable: nil)
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .help("新建日程或提醒")
-                    .keyboardShortcut("n", modifiers: [.command])
+                    .keyboardShortcut("n", modifiers: .command)
+                    .accessibilityLabel("新建日程或提醒事项")
 
                     Button {
                         showAISheet = true
                     } label: {
                         Image(systemName: "sparkles")
                     }
-                    .help("AI 日程助手")
-                    .keyboardShortcut("k", modifiers: [.command])
+                    .keyboardShortcut("k", modifiers: .command)
+                    .accessibilityLabel("AI 日程助手")
 
                     Button {
                         showSettingsSheet = true
                     } label: {
                         Image(systemName: "gearshape")
                     }
-                    .help("设置")
+                    .accessibilityLabel("设置")
                 }
             }
-            .sheet(isPresented: $showNewSheet) {
-                MobileNewItemSheet(eventStore: eventStore)
+            .sheet(item: $editorRequest) { request in
+                MobileItemEditor(eventStore: eventStore, existing: request.item, editable: request.editable)
             }
             .sheet(isPresented: $showAISheet) {
                 MobileAIAssistantSheet(eventStore: eventStore)
@@ -94,398 +104,21 @@ struct MobileRootView: View {
             .sheet(isPresented: $showSettingsSheet) {
                 MobileSettingsSheet(eventStore: eventStore)
             }
-        }
-    }
-
-    private var iPhoneCompactLayout: some View {
-        VStack(spacing: 0) {
-            MobileMonthGridView(eventStore: eventStore)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.primary.opacity(0.03))
-            Divider()
-            MobileAgendaListView(eventStore: eventStore, overdueExpanded: $overdueExpanded)
-        }
-    }
-
-    private var iPadSplitLayout: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 12) {
-                MobileMonthGridView(eventStore: eventStore)
-                    .padding(16)
-                Divider()
-                calendarQuickFilterList
-            }
-            .frame(width: 340)
-            .background(Color.primary.opacity(0.02))
-
-            Divider()
-
-            MobileAgendaListView(eventStore: eventStore, overdueExpanded: $overdueExpanded)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private var calendarQuickFilterList: some View {
-        List {
-            Section("日历与提醒列表") {
-                ForEach(eventStore.calendars) { cal in
-                    Button {
-                        eventStore.toggleCalendarSelection(id: cal.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: cal.isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(rgbColor(cal.colorRGB))
-                            Text(cal.title)
-                                .font(.system(size: 13))
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Text(cal.sourceTitle)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .listStyle(.plain)
-    }
-}
-
-// MARK: - Compact Itsycal Month Grid View
-
-struct MobileMonthGridView: View {
-    @ObservedObject var eventStore: MobileEventStore
-
-    private var calendar: Calendar { Calendar.autoupdatingCurrent }
-
-    private var weeks: [[Date]] {
-        MobileCalendarCore.monthGrid(
-            containing: eventStore.visibleMonth,
-            weekStartDOW: eventStore.weekStartDOW,
-            calendar: calendar
-        )
-    }
-
-    private static let monthTitleFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("yyyyMMMM")
-        return f
-    }()
-
-    var body: some View {
-        VStack(spacing: 8) {
-            monthHeader
-            weekdayHeader
-            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-                HStack(spacing: 2) {
-                    if eventStore.showWeeks, let firstDay = week.first {
-                        Text("\(calendar.component(.weekOfYear, from: firstDay))")
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 20)
-                    }
-                    ForEach(week, id: \.self) { day in
-                        dayCell(day)
-                    }
-                }
+            .alert(
+                "无法完成操作",
+                isPresented: Binding(get: { eventStore.lastError != nil }, set: { if !$0 { eventStore.lastError = nil } })
+            ) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(eventStore.lastError ?? "")
             }
         }
     }
 
-    private var monthHeader: some View {
-        HStack {
-            Text(Self.monthTitleFormatter.string(from: eventStore.visibleMonth))
-                .font(.system(size: 15, weight: .semibold))
-            Spacer()
-            HStack(spacing: 14) {
-                Button {
-                    if let prev = calendar.date(byAdding: .month, value: -1, to: eventStore.visibleMonth) {
-                        eventStore.visibleMonth = prev
-                        eventStore.reloadVisibleRange()
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    let now = Date()
-                    eventStore.visibleMonth = now
-                    eventStore.selectedDate = now
-                    eventStore.reloadVisibleRange()
-                } label: {
-                    Circle()
-                        .fill(Color.secondary.opacity(0.5))
-                        .frame(width: 7, height: 7)
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    if let next = calendar.date(byAdding: .month, value: 1, to: eventStore.visibleMonth) {
-                        eventStore.visibleMonth = next
-                        eventStore.reloadVisibleRange()
-                    }
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-            }
+    private var agenda: some View {
+        MobileAgendaView(eventStore: eventStore) { item in
+            editorRequest = EditorRequest(item: item, editable: eventStore.editableItem(for: item.ref))
         }
-        .padding(.bottom, 2)
-    }
-
-    private var weekdayHeader: some View {
-        let firstWeek = weeks.first ?? []
-        return HStack(spacing: 2) {
-            if eventStore.showWeeks {
-                Spacer().frame(width: 20)
-            }
-            ForEach(firstWeek, id: \.self) { day in
-                Text(shortWeekdaySymbol(for: day))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func dayCell(_ day: Date) -> some View {
-        let isToday = calendar.isDateInToday(day)
-        let isSelected = calendar.isDate(day, inSameDayAs: eventStore.selectedDate)
-        let isCurrentMonth = calendar.isDate(day, equalTo: eventStore.visibleMonth, toGranularity: .month)
-        let dayStart = calendar.startOfDay(for: day)
-        let items = eventStore.itemsByDay[dayStart] ?? []
-        let dotColors = uniqueDotColors(for: items)
-
-        return Button {
-            eventStore.selectedDate = day
-            if !isCurrentMonth {
-                eventStore.visibleMonth = day
-            }
-            eventStore.reloadVisibleRange()
-        } label: {
-            VStack(spacing: 2) {
-                Text("\(calendar.component(.day, from: day))")
-                    .font(.system(size: 13, weight: (isToday || isSelected) ? .bold : .regular, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(isToday ? Color.white : (isCurrentMonth ? Color.primary : Color.secondary.opacity(0.4)))
-                    .frame(width: 28, height: 24)
-                    .background {
-                        if isToday {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.accentColor)
-                        } else if isSelected {
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                        }
-                    }
-
-                HStack(spacing: 3) {
-                    if dotColors.isEmpty {
-                        Circle().fill(Color.clear).frame(width: 4, height: 4)
-                    } else {
-                        ForEach(Array(dotColors.prefix(3).enumerated()), id: \.offset) { _, rgb in
-                            Circle()
-                                .fill(rgbColor(rgb))
-                                .frame(width: 4, height: 4)
-                        }
-                    }
-                }
-                .frame(height: 5)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func uniqueDotColors(for items: [MobileAgendaItem]) -> [[Double]] {
-        var result: [[Double]] = []
-        for item in items {
-            if !result.contains(item.colorRGB) {
-                result.append(item.colorRGB)
-                if result.count == 3 { break }
-            }
-        }
-        return result
-    }
-
-    private func shortWeekdaySymbol(for date: Date) -> String {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("EEE")
-        return f.string(from: date)
-    }
-}
-
-// MARK: - Agenda + Overdue Reminders List View
-
-struct MobileAgendaListView: View {
-    @ObservedObject var eventStore: MobileEventStore
-    @Binding var overdueExpanded: Bool
-    @Environment(\.openURL) private var openURL
-
-    private var calendar: Calendar { Calendar.autoupdatingCurrent }
-
-    private var agendaDaysList: [Date] {
-        let start = calendar.startOfDay(for: eventStore.selectedDate)
-        return (0..<max(1, eventStore.agendaDays)).compactMap {
-            calendar.date(byAdding: .day, value: $0, to: start)
-        }
-    }
-
-    private static let dayHeaderFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMMddEEEE")
-        return f
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        return f
-    }()
-
-    var body: some View {
-        List {
-            if !eventStore.calendarAuthorized {
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("未授权访问日历")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("请在系统设置中允许 Itsycal 访问日历与提醒事项。")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-
-            if calendar.isDateInToday(eventStore.selectedDate) && !eventStore.overdueReminders.isEmpty {
-                Section {
-                    if overdueExpanded {
-                        ForEach(eventStore.overdueReminders) { item in
-                            agendaRow(item)
-                        }
-                    }
-                } header: {
-                    Button {
-                        withAnimation { overdueExpanded.toggle() }
-                    } label: {
-                        HStack {
-                            Text("已过期 (\(eventStore.overdueReminders.count))")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.red)
-                            Spacer()
-                            Image(systemName: overdueExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            ForEach(agendaDaysList, id: \.self) { day in
-                let items = eventStore.itemsByDay[day] ?? []
-                if !items.isEmpty {
-                    Section {
-                        ForEach(items) { item in
-                            agendaRow(item)
-                        }
-                    } header: {
-                        HStack {
-                            Text(Self.dayHeaderFormatter.string(from: day))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(calendar.isDateInToday(day) ? Color.accentColor : Color.secondary)
-                            if calendar.isDateInToday(day) {
-                                Text("今天")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.plain)
-    }
-
-    private func agendaRow(_ item: MobileAgendaItem) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            if item.kind == .reminder {
-                Button {
-                    eventStore.toggleReminderCompletion(item)
-                } label: {
-                    Image(systemName: item.isCompleted ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 15))
-                        .foregroundStyle(rgbColor(item.colorRGB))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-            } else {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(rgbColor(item.colorRGB))
-                    .frame(width: 4, height: 32)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.system(size: 14, weight: .medium))
-                    .strikethrough(item.isCompleted, color: .secondary)
-                    .foregroundStyle(item.isCompleted ? .secondary : .primary)
-
-                HStack(spacing: 6) {
-                    Text(timeDescription(for: item))
-                        .font(.system(size: 12))
-                        .foregroundStyle(item.isOverdue ? Color.red : Color.secondary)
-
-                    if let loc = item.location, !loc.isEmpty {
-                        Text("· \(loc)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            Spacer()
-
-            if let meetingURL = item.meetingURL {
-                Button {
-                    openURL(meetingURL)
-                } label: {
-                    Label("加入", systemImage: "video.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.mini)
-            }
-        }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                eventStore.deleteSingleItem(item)
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-        }
-    }
-
-    private func timeDescription(for item: MobileAgendaItem) -> String {
-        if item.kind == .reminder {
-            return item.hasTime ? Self.timeFormatter.string(from: item.startDate) : "全天提醒"
-        }
-        if item.isAllDay {
-            return "全天"
-        }
-        return "\(Self.timeFormatter.string(from: item.startDate)) – \(Self.timeFormatter.string(from: item.endDate))"
     }
 }
 
@@ -711,9 +344,7 @@ struct MobileAIAssistantSheet: View {
                 .padding(12)
             }
             .navigationTitle("AI 日程与提醒助手")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
@@ -728,110 +359,7 @@ struct MobileAIAssistantSheet: View {
     }
 }
 
-// MARK: - Manual New Event / Reminder Sheet
-
-struct MobileNewItemSheet: View {
-    @ObservedObject var eventStore: MobileEventStore
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var kind: AIProposedKind = .event
-    @State private var title: String = ""
-    @State private var location: String = ""
-    @State private var isAllDay: Bool = false
-    @State private var startDate: Date = Date()
-    @State private var endDate: Date = Date().addingTimeInterval(3600)
-    @State private var repeatFrequency: AIRepeatFrequency = .none
-    @State private var notes: String = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Picker("类型", selection: $kind) {
-                    Text("日程").tag(AIProposedKind.event)
-                    Text("提醒事项").tag(AIProposedKind.reminder)
-                }
-                .pickerStyle(.segmented)
-
-                Section {
-                    TextField("标题", text: $title)
-                    if kind == .event {
-                        TextField("位置或视频会议链接", text: $location)
-                    }
-                }
-
-                Section {
-                    Toggle("全天", isOn: $isAllDay)
-                    DatePicker(
-                        kind == .event ? "开始" : "截止",
-                        selection: $startDate,
-                        displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute]
-                    )
-                    if kind == .event {
-                        DatePicker(
-                            "结束",
-                            selection: $endDate,
-                            in: startDate...,
-                            displayedComponents: isAllDay ? [.date] : [.date, .hourAndMinute]
-                        )
-                    }
-                    Picker("重复", selection: $repeatFrequency) {
-                        Text("不重复").tag(AIRepeatFrequency.none)
-                        ForEach(AIRepeatFrequency.allCases.filter { $0 != .none }, id: \.self) { freq in
-                            Text(freq.label).tag(freq)
-                        }
-                    }
-                }
-
-                Section("备注") {
-                    TextField("添加备注…", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-            }
-            .navigationTitle(kind == .event ? "新建日程" : "新建提醒事项")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .onAppear {
-                startDate = eventStore.selectedDate
-                endDate = eventStore.selectedDate.addingTimeInterval(3600)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        Task {
-                            if kind == .reminder && !eventStore.remindersAuthorized {
-                                _ = await eventStore.requestRemindersAccess()
-                            }
-                            let item = AIProposedItem(
-                                operation: .create,
-                                kind: kind,
-                                selected: true,
-                                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                startDate: startDate,
-                                endDate: kind == .event ? max(startDate, endDate) : startDate,
-                                isAllDay: isAllDay,
-                                hasTime: !isAllDay,
-                                calendarID: "",
-                                calendarTitle: "",
-                                location: location.isEmpty ? nil : location,
-                                notes: notes.isEmpty ? nil : notes,
-                                repeatFrequency: repeatFrequency
-                            )
-                            try? eventStore.applyBatchChanges([item])
-                            dismiss()
-                        }
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Settings Sheet (Calendars, Appearance & AI Config)
+// MARK: - Settings Sheet (AI, Display & Calendars)
 
 struct MobileSettingsSheet: View {
     @ObservedObject var eventStore: MobileEventStore
@@ -905,7 +433,7 @@ struct MobileSettingsSheet: View {
                         } label: {
                             HStack {
                                 Image(systemName: cal.isSelected ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(rgbColor(cal.colorRGB))
+                                    .foregroundStyle(Color(rgb: cal.colorRGB))
                                 Text(cal.title)
                                     .foregroundStyle(.primary)
                                 Spacer()
@@ -918,9 +446,7 @@ struct MobileSettingsSheet: View {
                 }
             }
             .navigationTitle("设置")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .onDisappear {
                 AIConfigStore.shared.save(aiConfig)
             }
@@ -934,12 +460,4 @@ struct MobileSettingsSheet: View {
             }
         }
     }
-}
-
-private func rgbColor(_ rgb: [Double]) -> Color {
-    Color(
-        red: rgb.indices.contains(0) ? rgb[0] : 0.2,
-        green: rgb.indices.contains(1) ? rgb[1] : 0.5,
-        blue: rgb.indices.contains(2) ? rgb[2] : 0.95
-    )
 }

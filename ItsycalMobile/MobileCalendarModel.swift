@@ -19,6 +19,9 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
     public let location: String?
     public let notes: String?
     public let meetingURL: URL?
+    /// False when the item's calendar or list is read-only (subscriptions, holidays, birthdays).
+    public let isEditable: Bool
+    public let isRecurring: Bool
 
     public init(
         id: String,
@@ -38,7 +41,9 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
         colorRGB: [Double] = [0.2, 0.5, 0.95],
         location: String? = nil,
         notes: String? = nil,
-        meetingURL: URL? = nil
+        meetingURL: URL? = nil,
+        isEditable: Bool = true,
+        isRecurring: Bool = false
     ) {
         self.id = id
         self.targetIdentifier = targetIdentifier
@@ -58,10 +63,28 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
         self.location = location
         self.notes = notes
         self.meetingURL = meetingURL
+        self.isEditable = isEditable
+        self.isRecurring = isRecurring
     }
 }
 
 public enum MobileCalendarCore {
+    // Month cell metrics, shared by the layout rule below and the month view.
+    public static let cellTopInset = 3.0
+    public static let dayNumberHeight = 20.0
+    public static let chipHeight = 14.0
+    public static let chipSpacing = 1.0
+
+    /// How many item chips fit in a month cell of `cellHeight`, and how many
+    /// are left over for the "+N" count. Zero visible means the cell is too
+    /// short for chips and shows colour dots instead.
+    public static func chipLayout(cellHeight: Double, itemCount: Int) -> (visible: Int, hidden: Int) {
+        let room = cellHeight - cellTopInset - dayNumberHeight - chipSpacing * 2
+        let rows = max(0, Int(room / (chipHeight + chipSpacing)))
+        let visible = min(itemCount, rows)
+        return (visible, itemCount - visible)
+    }
+
     /// Returns whole weeks (4 to 6 rows of 7 days) covering the month containing `monthDate`.
     /// `weekStartDOW` uses Itsycal's convention: 0 = Sunday, 1 = Monday, ..., 6 = Saturday.
     public static func monthGrid(containing monthDate: Date, weekStartDOW: Int, calendar: Calendar) -> [[Date]] {

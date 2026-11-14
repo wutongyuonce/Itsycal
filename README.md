@@ -24,7 +24,7 @@
 
 ### 3. iOS / iPadOS 移动端 (`ItsycalMobile`)
 - 在同一 Xcode 工程中提供原生 iOS / iPadOS Target（`ItsycalMobile`），**零拷贝直接共享 `Itsycal/AIAssistant.swift`**（多协议客户端与 `JavaScriptCore` CodeMode 沙箱）。
-- **自适应双端界面**：iPhone 延续紧凑月历网格 + 议程与提醒事项混排上下分栏；iPad 自动切换为左侧月历 + 日历快速筛选、右侧宽屏议程的双栏布局，支持外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天）。
+- **以月视图为主的自适应界面**：月视图参照桌面月视图小组件，格内直接显示日程与提醒；窄窗口上下分栏、宽窗口（iPad、iPhone 横屏）左右分栏，点击议程中的任一条目即可编辑，支持多级撤销和外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天、`⌘Z` 撤销）。
 - 具体架构与规格见 [iOS / iPadOS 端规格与设计契约](docs/IOS_APP_SPEC.md)。
 
 ## 系统要求
