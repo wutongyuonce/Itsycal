@@ -23,9 +23,9 @@ enum MobileCalendarCheck {
         let rangeStart = day(2026, 11, 1, 0)
         let rangeEnd = day(2026, 11, 30, 0)
 
-        let overnight = MobileCalendarCore.coveredDays(
-            eventStart: day(2026, 11, 10, 22),
-            eventEnd: day(2026, 11, 11, 2),
+        let overnight = DayItems.coveredDays(
+            start: day(2026, 11, 10, 22),
+            end: day(2026, 11, 11, 2),
             isAllDay: false,
             rangeStart: rangeStart,
             rangeEnd: rangeEnd,
@@ -35,9 +35,9 @@ enum MobileCalendarCheck {
         assert(cal.isDate(overnight[0].day, inSameDayAs: day(2026, 11, 10, 0)) && !overnight[0].spansWholeDay)
         assert(cal.isDate(overnight[1].day, inSameDayAs: day(2026, 11, 11, 0)) && !overnight[1].spansWholeDay)
 
-        let midnightEnd = MobileCalendarCore.coveredDays(
-            eventStart: day(2026, 11, 12, 20),
-            eventEnd: day(2026, 11, 13, 0),
+        let midnightEnd = DayItems.coveredDays(
+            start: day(2026, 11, 12, 20),
+            end: day(2026, 11, 13, 0),
             isAllDay: false,
             rangeStart: rangeStart,
             rangeEnd: rangeEnd,
@@ -45,9 +45,9 @@ enum MobileCalendarCheck {
         )
         assert(midnightEnd.count == 1 && cal.isDate(midnightEnd[0].day, inSameDayAs: day(2026, 11, 12, 0)))
 
-        let pointEvent = MobileCalendarCore.coveredDays(
-            eventStart: day(2026, 11, 15, 0),
-            eventEnd: day(2026, 11, 15, 0),
+        let pointEvent = DayItems.coveredDays(
+            start: day(2026, 11, 15, 0),
+            end: day(2026, 11, 15, 0),
             isAllDay: false,
             rangeStart: rangeStart,
             rangeEnd: rangeEnd,
@@ -63,7 +63,7 @@ enum MobileCalendarCheck {
         let spanning = MobileAgendaItem(id: "4", targetIdentifier: "4", kind: .event, title: "Spanning", day: d, startDate: day(2026, 11, 15, 10), endDate: day(2026, 11, 17, 10), isAllDay: true, isRealAllDay: false, hasTime: true, calendarID: "c", calendarTitle: "Work")
         let realAllDay = MobileAgendaItem(id: "5", targetIdentifier: "5", kind: .event, title: "Holiday", day: d, startDate: d, endDate: d, isAllDay: true, isRealAllDay: true, hasTime: false, calendarID: "c", calendarTitle: "Work")
 
-        let sorted = MobileCalendarCore.sortItemsOnDay([timedLate, timedDoneRem, spanning, realAllDay, timedOpenRem])
+        let sorted = DayItems.sorted([timedLate, timedDoneRem, spanning, realAllDay, timedOpenRem])
         assert(sorted.map(\.id) == ["5", "4", "3", "2", "1"])
 
         // 4. Month cell chip layout: rows that fit, overflow count, dots when too short
@@ -79,6 +79,12 @@ enum MobileCalendarCheck {
         assert(zoomURL?.host == "us02web.zoom.us")
         assert(MobileCalendarCore.detectMeetingURL(in: ["https://example.com/not-a-meeting"]) == nil)
 
-        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout and meeting detection")
+        // 6. Widget links open their day; other URLs and invalid dates are ignored
+        let link = URL(string: "itsycal-week://date/2026-11-16?widget=1")!
+        assert(MobileCalendarCore.day(fromWidgetURL: link, calendar: cal) == day(2026, 11, 16, 0))
+        assert(MobileCalendarCore.day(fromWidgetURL: URL(string: "itsycal-week://date/2026-02-30")!, calendar: cal) == nil)
+        assert(MobileCalendarCore.day(fromWidgetURL: URL(string: "https://date/2026-11-16")!, calendar: cal) == nil)
+
+        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection and widget links")
     }
 }

@@ -18,16 +18,29 @@ struct PeriodProvider: TimelineProvider {
     func getSnapshot(in context: Context, completion: @escaping (PeriodEntry) -> Void) {
         let now = Date()
         if context.isPreview { return completion(PeriodEntry(date: now, shown: now, snapshot: .preview(at: now))) }
-        completion(PeriodEntry(date: now, shown: PeriodNavigation.load(period)?.shown(at: now) ?? now, snapshot: .load()))
+        currentSnapshot(at: now) { snapshot in
+            completion(PeriodEntry(date: now, shown: PeriodNavigation.load(period)?.shown(at: now) ?? now, snapshot: snapshot))
+        }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PeriodEntry>) -> Void) {
         let now = Date()
-        let snapshot = WeekSnapshot.load()
-        let navigation = PeriodNavigation.load(period)
-        let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation)
-            .map { PeriodEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
-        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(3600))))
+        currentSnapshot(at: now) { snapshot in
+            let navigation = PeriodNavigation.load(period)
+            let entries = WeekDates.timelineDates(from: now, calendar: WeekDates.calendar, navigation: navigation)
+                .map { PeriodEntry(date: $0, shown: navigation?.shown(at: $0) ?? $0, snapshot: snapshot) }
+            completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(3600))))
+        }
+    }
+
+    /// The Mac app publishes the snapshot into the App Group; the iOS widgets
+    /// build it from EventKit themselves (ItsycalMobileWidgets/WidgetEventSource.swift).
+    private func currentSnapshot(at now: Date, _ completion: @escaping (WeekSnapshot?) -> Void) {
+        #if os(iOS)
+        Task { completion(await WeekSnapshot.fromEventKit(now: now)) }
+        #else
+        completion(WeekSnapshot.load())
+        #endif
     }
 }
 
@@ -63,8 +76,17 @@ struct ItsycalMonthWidget: Widget {
         }
         .configurationDisplayName("本月日程")
         .description("整月日历与每天的安排，可切换到下月。")
-        .supportedFamilies([.systemExtraLarge])
+        .supportedFamilies(Self.families)
         .contentMarginsDisabled()
+    }
+
+    /// iPhone has no extra-large widgets, so on iOS the month also comes in large.
+    private static var families: [WidgetFamily] {
+        #if os(iOS)
+        return [.systemLarge, .systemExtraLarge]
+        #else
+        return [.systemExtraLarge]
+        #endif
     }
 }
 

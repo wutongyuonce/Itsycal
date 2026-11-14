@@ -11,6 +11,12 @@ struct ItsycalMobileApp: App {
                 .task {
                     await eventStore.requestInitialAccess()
                 }
+                // Tapping a day (or the title) in a widget opens that day.
+                .onOpenURL { url in
+                    if let day = MobileCalendarCore.day(fromWidgetURL: url, calendar: .autoupdatingCurrent) {
+                        eventStore.select(day)
+                    }
+                }
         }
     }
 }

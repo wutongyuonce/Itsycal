@@ -6,7 +6,7 @@
 
 - 与 macOS 端同仓库：`Itsycal.xcodeproj` 中的 `ItsycalMobile` Target，直接编译共享的 `Itsycal/AIAssistant.swift`（AI 配置、多协议客户端、`JavaScriptCore` CodeMode 沙箱），不复制代码。
 - 数据全部来自系统 EventKit（日历与提醒事项），不另建存储。
-- 非目标：不支持 Mac Catalyst 运行；暂无 iOS 桌面小组件。
+- 非目标：不支持 Mac Catalyst 运行。
 
 ## 2. 用户可见行为
 
@@ -46,12 +46,21 @@
 - 目标条目已在别处被删除或修改导致撤销、左滑删除失败时，弹窗告知原因，不会改到同名的其他条目。
 - 已知限制：撤销「删除所有将来日程」时，重复规则按选择器能表达的频率和结束日期恢复，自定义规则或按次数结束的规则会被简化。
 
+### 小组件
+
+- 与 Mac 端同一套小组件：「本周日程」（中号；iPad 另有超大号）和「本月日程」（大号；iPad 另有超大号，iPhone 没有超大号尺寸）。外观、`‹ ›` 切换下周/下月、15 分钟后自动回到当前周期，均与 [桌面小组件规格](WEEK_WIDGET_SPEC.md) 相同。
+- 点击某一天或标题打开 App 并选中那一天（`itsycal-week://date/yyyy-MM-dd`）。
+- 数据来源与 Mac 不同：个人（免费）开发者团队不能使用 App Group，App 无法把快照共享给小组件，所以小组件自己读 EventKit 生成同格式的快照，覆盖本月第一周到下月最后一周。因此 iOS 小组件**显示全部日历**，**一周起始日跟随系统**，不读取 App 内的这两项设置。
+- App 每次检测到日历变化（包括自己的写入）都会请求小组件刷新；此外小组件每小时及每天零点自动更新。
+- 小组件没有日历权限时显示「打开 Itsycal，允许访问日历」。
+
 ## 3. 规则与不变量
 
 | ID | 规则 | 权威位置 |
 |---|---|---|
 | M1 | `AIAssistant.swift` 只依赖 `Foundation` / `Security` / `JavaScriptCore`，被两端共同编译 | `Itsycal/AIAssistant.swift` |
-| M2 | 月网格、跨日拆分、同日排序、月格可容纳条目数各只有一处实现 | `MobileCalendarCore` |
+| M2 | 月网格、月格可容纳条目数各只有一处实现；跨日拆分与同日排序只在 `DayItems`，App 与 iOS 小组件共用 | `MobileCalendarCore`、`DayItems` |
+| M6 | iOS 小组件的快照与 Mac 端 `WeekSnapshot.m` 同格式、同标记规则（每天都有桶，空天也有），共享的小组件视图不区分平台 | `WidgetSnapshotBuilder` |
 | M3 | 所有写入经 `MobileEventStore`：批量增删一次提交，失败 `reset()` 回滚；每次成功写入只登记一个逆操作作为撤销 | `MobileEventStore` |
 | M4 | 定位条目时优先匹配「标识符 + 开始时间」的那一次发生，避免重复日程误改第一次；只有没有标识符的 AI 提议才按标题匹配 | `MobileEventStore.resolveEvent` / `resolveReminder` |
 | M5 | 提醒事项的抓取结果只在仍是最新一次刷新时生效，快速切换日期不会被旧结果覆盖 | `MobileEventStore.reloadVisibleRange` |
@@ -60,19 +69,26 @@
 
 ```text
 Itsycal/AIAssistant.swift          两端共享的 AI 引擎
+ItsycalWidgets/                    Mac 与 iOS 共用的小组件视图、时间线、切换按钮、快照格式
 ItsycalMobile/
-  MobileCalendarModel.swift        纯算法：月网格、跨日拆分、同日排序、月格条目布局、会议链接识别
-  MobileEventStore.swift           EventKit：权限、抓取、导航、编辑、批量事务、撤销、AI 宿主上下文
+  DayItems.swift                   跨日拆分与同日排序（App 与 iOS 小组件共用）
+  EventKitHelpers.swift            提醒截止时间、日历颜色（App 与 iOS 小组件共用）
+  MobileCalendarModel.swift        纯算法：月网格、月格条目布局、会议链接识别、小组件链接解析
+  MobileEventStore.swift           EventKit：权限、抓取、导航、编辑、批量事务、撤销、AI 宿主上下文、通知小组件刷新
   MobileCalendarViews.swift        月视图与议程视图
   MobileItemEditor.swift           新建/编辑/删除表单
-  ItsycalMobileApp.swift           入口、根布局、AI 助手面板、设置
+  ItsycalMobileApp.swift           入口、根布局、AI 助手面板、设置、打开小组件链接
+ItsycalMobileWidgets/              iOS 小组件扩展（同时编译 ItsycalWidgets/ 全部源文件）
+  WidgetSnapshotBuilder.swift      纯算法：快照区间与按天的标记、排序
+  WidgetEventSource.swift          从 EventKit 读取日程与未完成提醒，生成快照
 ```
 
 ## 5. 验证
 
 | 义务 | 证据 |
 |---|---|
-| 月网格、跨日拆分、排序、月格布局、会议链接 | `Tests/MobileCalendarCheck.swift`（`bash Tests/check-week.sh`） |
+| 月网格、跨日拆分、排序、月格布局、会议链接、小组件链接 | `Tests/MobileCalendarCheck.swift`（`bash Tests/check-week.sh`） |
+| iOS 小组件快照：区间、空天桶、同日顺序、跨日标记、无权限 | `Tests/MobileWidgetCheck.swift` |
 | 共享 AI 引擎 | `Tests/AIAssistantCheck.swift` |
 | iOS 编译 | `xcodebuild -project Itsycal.xcodeproj -target ItsycalMobile -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build` |
-| 布局、编辑、撤销等交互 | 真机验收（iPhone 竖/横屏，iPad 全屏、分屏、Slide Over） |
+| 布局、编辑、撤销等交互，小组件读取权限与刷新 | 真机验收（iPhone 竖/横屏，iPad 全屏、分屏、Slide Over；添加两种小组件） |

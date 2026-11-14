@@ -68,6 +68,8 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
     }
 }
 
+extension MobileAgendaItem: DayItem {}
+
 public enum MobileCalendarCore {
     // Month cell metrics, shared by the layout rule below and the month view.
     public static let cellTopInset = 3.0
@@ -110,54 +112,17 @@ public enum MobileCalendarCore {
         return weeks
     }
 
-    /// Splits a potentially multi-day event across each covered day in `[rangeStart, rangeEnd)`,
-    /// matching Itsycal's `[start, end)` half-open midnight semantics.
-    public static func coveredDays(
-        eventStart: Date,
-        eventEnd: Date,
-        isAllDay: Bool,
-        rangeStart: Date,
-        rangeEnd: Date,
-        calendar: Calendar
-    ) -> [(day: Date, spansWholeDay: Bool)] {
-        let clampedStart = max(eventStart, rangeStart)
-        let clampedEnd = min(eventEnd, rangeEnd)
-        var day = calendar.startOfDay(for: clampedStart)
-        var pointEvent = eventStart == eventEnd && eventStart >= rangeStart && eventStart < rangeEnd
-        var results: [(day: Date, spansWholeDay: Bool)] = []
-
-        while day < clampedEnd || pointEvent {
-            pointEvent = false
-            let nextDay = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: day)!)
-            let spansWholeDay = isAllDay || (eventStart < day && eventEnd >= nextDay)
-            results.append((day: day, spansWholeDay: spansWholeDay))
-            day = nextDay
-        }
-        return results
-    }
-
-    /// Sorts items on the same day following Itsycal's `CompareItemsOnDay` order:
-    /// real all-day items first (incomplete reminders after events at tie), then spanning all-day items,
-    /// then timed items by start time, incomplete before completed, and finally localized title.
-    public static func sortItemsOnDay(_ items: [MobileAgendaItem]) -> [MobileAgendaItem] {
-        items.sorted { e1, e2 in
-            if e1.isRealAllDay && e2.isRealAllDay {
-                if e1.isCompleted != e2.isCompleted { return !e1.isCompleted }
-                let calCmp = e1.calendarTitle.localizedStandardCompare(e2.calendarTitle)
-                if calCmp != .orderedSame { return calCmp == .orderedAscending }
-            } else if e1.isRealAllDay != e2.isRealAllDay {
-                return e1.isRealAllDay
-            } else if e1.isAllDay && e2.isAllDay {
-                let calCmp = e1.calendarTitle.localizedStandardCompare(e2.calendarTitle)
-                if calCmp != .orderedSame { return calCmp == .orderedAscending }
-            } else if e1.isAllDay != e2.isAllDay {
-                return e1.isAllDay
-            } else {
-                if e1.startDate != e2.startDate { return e1.startDate < e2.startDate }
-                if e1.isCompleted != e2.isCompleted { return !e1.isCompleted }
-            }
-            return e1.title.localizedStandardCompare(e2.title) == .orderedAscending
-        }
+    /// The day a widget link opens (`itsycal-week://date/yyyy-MM-dd`, built by
+    /// `WeekDates.link` in the shared widget code), or nil for any other URL.
+    public static func day(fromWidgetURL url: URL, calendar: Calendar) -> Date? {
+        guard url.scheme == "itsycal-week", url.host == "date" else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter.date(from: url.lastPathComponent).map(calendar.startOfDay(for:))
     }
 
     /// Detects the first virtual meeting link (Zoom, Google Meet, Microsoft Teams, Webex, Feishu/Lark, Tencent Meeting) in text.

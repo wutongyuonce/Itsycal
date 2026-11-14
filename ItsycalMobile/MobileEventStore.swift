@@ -2,6 +2,7 @@ import Combine
 import EventKit
 import Foundation
 import SwiftUI
+import WidgetKit
 
 /// Identifies one item in the store: an event occurrence (by identifier and
 /// start) or a reminder. The title is a fallback when the identifier is gone.
@@ -163,10 +164,13 @@ final class MobileEventStore: ObservableObject {
         return options.first?.id ?? ""
     }
 
+    /// Also runs on every EventKit change, including the app's own writes,
+    /// so it is where the iOS widgets are told to rebuild their snapshot.
     func reloadAll() {
         refreshAuthorizationStatus()
         loadCalendars()
         reloadVisibleRange()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func loadCalendars() {
@@ -190,7 +194,7 @@ final class MobileEventStore: ObservableObject {
                     allowsEvents: type == .event,
                     allowsReminders: cal.allowedEntityTypes.contains(.reminder),
                     allowsModifications: cal.allowsContentModifications,
-                    colorRGB: Self.extractRGB(from: cal.cgColor),
+                    colorRGB: cal.rgb,
                     isSelected: hasSavedPreference ? savedIDs.contains(cal.calendarIdentifier) : true
                 ))
             }
@@ -227,11 +231,11 @@ final class MobileEventStore: ObservableObject {
                 let predicate = store.predicateForEvents(withStart: rangeStart, end: rangeEnd, calendars: ekCals)
                 for ev in store.events(matching: predicate) {
                     let targetID = Self.identifier(of: ev)
-                    let rgb = Self.extractRGB(from: ev.calendar.cgColor)
+                    let rgb = ev.calendar.rgb
                     let meeting = MobileCalendarCore.detectMeetingURL(in: [ev.location, ev.url?.absoluteString, ev.notes])
-                    let covered = MobileCalendarCore.coveredDays(
-                        eventStart: ev.startDate,
-                        eventEnd: ev.endDate,
+                    let covered = DayItems.coveredDays(
+                        start: ev.startDate,
+                        end: ev.endDate,
                         isAllDay: ev.isAllDay,
                         rangeStart: rangeStart,
                         rangeEnd: rangeEnd,
@@ -297,7 +301,7 @@ final class MobileEventStore: ObservableObject {
         var overdue: [MobileAgendaItem] = []
 
         for rem in reminders {
-            guard let (dueDate, hasTime) = Self.dueDate(for: rem) else { continue }
+            guard let (dueDate, hasTime) = rem.dueDateAndHasTime else { continue }
             let day = cal.startOfDay(for: dueDate)
             let isOverdue = !rem.isCompleted && dueDate < todayStart
             func item(id: String, overdue: Bool) -> MobileAgendaItem {
@@ -316,7 +320,7 @@ final class MobileEventStore: ObservableObject {
                     isOverdue: overdue,
                     calendarID: rem.calendar.calendarIdentifier,
                     calendarTitle: rem.calendar.title,
-                    colorRGB: Self.extractRGB(from: rem.calendar.cgColor),
+                    colorRGB: rem.calendar.rgb,
                     location: rem.location,
                     notes: rem.notes,
                     isEditable: rem.calendar.allowsContentModifications,
@@ -335,7 +339,7 @@ final class MobileEventStore: ObservableObject {
     }
 
     private func finalizeBuckets(_ raw: [Date: [MobileAgendaItem]], overdue: [MobileAgendaItem]) {
-        itemsByDay = raw.mapValues(MobileCalendarCore.sortItemsOnDay)
+        itemsByDay = raw.mapValues { DayItems.sorted($0) }
         overdueReminders = overdue
     }
 
@@ -668,7 +672,7 @@ final class MobileEventStore: ObservableObject {
                             isAllDay: ev.isAllDay,
                             calendarID: ev.calendar.calendarIdentifier,
                             calendarTitle: ev.calendar.title,
-                            colorRGB: Self.extractRGB(from: ev.calendar.cgColor),
+                            colorRGB: ev.calendar.rgb,
                             kind: .event
                         ))
                     }
@@ -696,7 +700,7 @@ final class MobileEventStore: ObservableObject {
             hasTime: !ev.isAllDay,
             calendarID: ev.calendar.calendarIdentifier,
             calendarTitle: ev.calendar.title,
-            calendarColorRGB: extractRGB(from: ev.calendar.cgColor),
+            calendarColorRGB: ev.calendar.rgb,
             location: ev.location,
             urlString: ev.url?.absoluteString,
             notes: ev.notes,
@@ -706,7 +710,7 @@ final class MobileEventStore: ObservableObject {
     }
 
     private static func snapshot(from rem: EKReminder) -> AIProposedItem {
-        let (due, hasTime) = dueDate(for: rem) ?? (Date(), false)
+        let (due, hasTime) = rem.dueDateAndHasTime ?? (Date(), false)
         let rule = rem.recurrenceRules?.first
         return AIProposedItem(
             kind: .reminder,
@@ -717,7 +721,7 @@ final class MobileEventStore: ObservableObject {
             hasTime: hasTime,
             calendarID: rem.calendar.calendarIdentifier,
             calendarTitle: rem.calendar.title,
-            calendarColorRGB: extractRGB(from: rem.calendar.cgColor),
+            calendarColorRGB: rem.calendar.rgb,
             urlString: rem.url?.absoluteString,
             notes: rem.notes,
             repeatFrequency: repeatFrequency(of: rule) ?? AIRepeatFrequency.none,
@@ -758,23 +762,4 @@ final class MobileEventStore: ObservableObject {
         }
     }
 
-    nonisolated private static func dueDate(for reminder: EKReminder) -> (Date, Bool)? {
-        guard var comp = reminder.dueDateComponents else { return nil }
-        let hasTime = comp.hour != nil && comp.hour != NSDateComponentUndefined
-        var dueCal = comp.calendar ?? Calendar(identifier: .gregorian)
-        dueCal.timeZone = (hasTime ? comp.timeZone : nil) ?? .current
-        comp.calendar = nil
-        comp.timeZone = nil
-        guard let date = dueCal.date(from: comp) else { return nil }
-        return (date, hasTime)
-    }
-
-    nonisolated private static func extractRGB(from cgColor: CGColor?) -> [Double] {
-        guard let cgColor,
-              let converted = cgColor.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
-              let comps = converted.components, comps.count >= 3 else {
-            return [0.2, 0.5, 0.95]
-        }
-        return [Double(comps[0]), Double(comps[1]), Double(comps[2])]
-    }
 }
