@@ -70,7 +70,29 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
 
 extension MobileAgendaItem: DayItem {}
 
+public struct MobileAgendaExpansion: Equatable, Sendable {
+    public let stepDays: Int
+    public let skippedEmptyDays: Int
+    public let nextWindowStart: Date
+    public let nextWindowItemCount: Int
+}
+
+public enum MobileAgendaEntry: Equatable, Identifiable, Sendable {
+    case day(Date, [MobileAgendaItem])
+    case skippedEmptyDays(start: Date, count: Int)
+
+    public var id: String {
+        switch self {
+        case .day(let d, _): return "day-\(d.timeIntervalSince1970)"
+        case .skippedEmptyDays(let s, let c): return "skip-\(s.timeIntervalSince1970)-\(c)"
+        }
+    }
+}
+
 public enum MobileCalendarCore {
+    /// How far ahead from `selectedDate` the store fetches so the agenda can
+    /// peek and expand into upcoming weeks without re-querying EventKit.
+    public static let agendaLookaheadDays = 365
     // Month cell metrics, shared by the layout rule below and the month view.
     public static let cellTopInset = 3.0
     public static let dayNumberHeight = 20.0
@@ -135,6 +157,80 @@ public enum MobileCalendarCore {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.isLenient = false
         return formatter.date(from: url.lastPathComponent).map(calendar.startOfDay(for:))
+    }
+
+    /// Builds the visible agenda entries for `[selectedStart, selectedStart + shownDays)`.
+    /// Runs of 7 or more consecutive empty days before an active day are summarized
+    /// with a single `.skippedEmptyDays` entry so the user sees why dates jumped.
+    public static func agendaEntries(
+        from selectedStart: Date,
+        shownDays: Int,
+        itemsByDay: [Date: [MobileAgendaItem]],
+        calendar: Calendar
+    ) -> [MobileAgendaEntry] {
+        let total = max(1, shownDays)
+        var entries: [MobileAgendaEntry] = []
+        var emptyStart: Date?
+        var emptyCount = 0
+
+        for offset in 0..<total {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: selectedStart) else { continue }
+            let items = itemsByDay[day] ?? []
+            if items.isEmpty {
+                if emptyStart == nil { emptyStart = day }
+                emptyCount += 1
+            } else {
+                if emptyCount >= 7, let start = emptyStart {
+                    entries.append(.skippedEmptyDays(start: start, count: emptyCount))
+                }
+                emptyStart = nil
+                emptyCount = 0
+                entries.append(.day(day, items))
+            }
+        }
+        return entries
+    }
+
+    /// Computes what the bottom "Expand" action should do after the current
+    /// `[selectedStart, selectedStart + shownDays)` window, looking ahead up to
+    /// `lookaheadDays` from `selectedStart`. Returns `nil` when no further items exist.
+    public static func agendaExpansion(
+        from selectedStart: Date,
+        shownDays: Int,
+        itemsByDay: [Date: [MobileAgendaItem]],
+        calendar: Calendar,
+        lookaheadDays: Int = agendaLookaheadDays
+    ) -> MobileAgendaExpansion? {
+        let clampedShown = max(1, shownDays)
+        guard clampedShown < lookaheadDays,
+              let windowEnd = calendar.date(byAdding: .day, value: clampedShown, to: selectedStart) else {
+            return nil
+        }
+
+        var firstActiveOffset: Int?
+        for offset in clampedShown..<lookaheadDays {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: selectedStart) else { continue }
+            if !(itemsByDay[day] ?? []).isEmpty {
+                firstActiveOffset = offset - clampedShown
+                break
+            }
+        }
+        guard let gap = firstActiveOffset else { return nil }
+
+        let skipped = gap >= 7 ? gap : 0
+        guard let nextStart = calendar.date(byAdding: .day, value: skipped, to: windowEnd) else { return nil }
+        var count = 0
+        for d in 0..<7 {
+            if let day = calendar.date(byAdding: .day, value: d, to: nextStart) {
+                count += (itemsByDay[day] ?? []).count
+            }
+        }
+        return MobileAgendaExpansion(
+            stepDays: skipped + 7,
+            skippedEmptyDays: skipped,
+            nextWindowStart: nextStart,
+            nextWindowItemCount: count
+        )
     }
 
     /// Detects the first virtual meeting link (Zoom, Google Meet, Microsoft Teams, Webex, Feishu/Lark, Tencent Meeting) in text.

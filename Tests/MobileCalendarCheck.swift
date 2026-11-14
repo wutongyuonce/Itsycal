@@ -93,6 +93,50 @@ enum MobileCalendarCheck {
         assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2025, month: 2, of: feb29, calendar: cal), inSameDayAs: day(2025, 2, 28, 0)))
         assert(cal.isDate(MobileCalendarCore.date(bySettingYear: 2028, month: 5, of: nov2026, calendar: cal), inSameDayAs: day(2028, 5, 14, 0)))
 
-        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection, widget links and year/month jump")
+        // 8. Agenda expansion: immediate next week, skipping empty gap weeks, and exhausted horizon
+        let startDay = day(2026, 11, 1, 0)
+        let itemOnDay = { (offset: Int, title: String) -> (Date, [MobileAgendaItem]) in
+            let d = cal.date(byAdding: .day, value: offset, to: startDay)!
+            return (d, [MobileAgendaItem(id: title, targetIdentifier: title, kind: .event, title: title, day: d, startDate: d, endDate: d, isAllDay: true, isRealAllDay: true, hasTime: false, calendarID: "c", calendarTitle: "Work")])
+        }
+        let buckets = Dictionary(uniqueKeysWithValues: [
+            itemOnDay(1, "Day 1"),
+            itemOnDay(9, "Next Week Item"),
+            itemOnDay(25, "After Gap 1"),
+            itemOnDay(27, "After Gap 2"),
+        ])
+
+        // 8a. Shown 7 days (0..<7): immediate next week (7..<14) has "Next Week Item" on offset 9
+        let exp1 = MobileCalendarCore.agendaExpansion(from: startDay, shownDays: 7, itemsByDay: buckets, calendar: cal)
+        assert(exp1 == MobileAgendaExpansion(
+            stepDays: 7,
+            skippedEmptyDays: 0,
+            nextWindowStart: cal.date(byAdding: .day, value: 7, to: startDay)!,
+            nextWindowItemCount: 1
+        ))
+
+        // 8b. Shown 14 days (0..<14): offsets 14..<21 are empty, next active day is offset 25 (gap = 11 >= 7)
+        let exp2 = MobileCalendarCore.agendaExpansion(from: startDay, shownDays: 14, itemsByDay: buckets, calendar: cal)
+        assert(exp2 == MobileAgendaExpansion(
+            stepDays: 18,
+            skippedEmptyDays: 11,
+            nextWindowStart: cal.date(byAdding: .day, value: 25, to: startDay)!,
+            nextWindowItemCount: 2
+        ))
+
+        // 8c. Shown 32 days (0..<32): no further items in lookahead horizon -> nil
+        let exp3 = MobileCalendarCore.agendaExpansion(from: startDay, shownDays: 32, itemsByDay: buckets, calendar: cal)
+        assert(exp3 == nil)
+
+        // 8d. Agenda entries insert .skippedEmptyDays when a run of >= 7 empty days precedes an active day
+        let entries = MobileCalendarCore.agendaEntries(from: startDay, shownDays: 32, itemsByDay: buckets, calendar: cal)
+        assert(entries.count == 6) // Day 1, skip(7), Next Week Item, skip(15), After Gap 1, After Gap 2
+        if case .skippedEmptyDays(_, let skippedCount) = entries[3] {
+            assert(skippedCount == 15)
+        } else {
+            assertionFailure("Expected skippedEmptyDays entry before offset 25")
+        }
+
+        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection, widget links, year/month jump and agenda expansion")
     }
 }

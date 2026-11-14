@@ -54,10 +54,16 @@ final class MobileEventStore: ObservableObject {
     }
     @Published var agendaDays: Int = (UserDefaults.standard.object(forKey: "MobileAgendaDays") as? Int) ?? 7 {
         didSet {
+            extraAgendaDays = 0
             UserDefaults.standard.set(agendaDays, forKey: "MobileAgendaDays")
             reloadVisibleRange()
         }
     }
+    /// Extra days revealed by tapping the bottom "Expand" button in the agenda;
+    /// resets whenever the user selects a date or changes months.
+    @Published private(set) var extraAgendaDays = 0
+    var totalAgendaDays: Int { max(1, agendaDays) + extraAgendaDays }
+    var lookaheadHorizonDays: Int { max(MobileCalendarCore.agendaLookaheadDays, totalAgendaDays + 30) }
     @Published var showWeeks: Bool = UserDefaults.standard.bool(forKey: "ShowWeeks") {
         didSet { UserDefaults.standard.set(showWeeks, forKey: "ShowWeeks") }
     }
@@ -124,6 +130,7 @@ final class MobileEventStore: ObservableObject {
     // MARK: - Navigation
 
     func select(_ day: Date) {
+        extraAgendaDays = 0
         selectedDate = day
         if !Calendar.autoupdatingCurrent.isDate(day, equalTo: visibleMonth, toGranularity: .month) {
             visibleMonth = day
@@ -133,6 +140,7 @@ final class MobileEventStore: ObservableObject {
 
     func shiftMonth(by months: Int) {
         guard let month = Calendar.autoupdatingCurrent.date(byAdding: .month, value: months, to: visibleMonth) else { return }
+        extraAgendaDays = 0
         visibleMonth = month
         reloadVisibleRange()
     }
@@ -140,9 +148,19 @@ final class MobileEventStore: ObservableObject {
     func setYearMonth(year: Int, month: Int) {
         let cal = Calendar.autoupdatingCurrent
         let target = MobileCalendarCore.date(bySettingYear: year, month: month, of: selectedDate, calendar: cal)
+        extraAgendaDays = 0
         visibleMonth = target
         selectedDate = target
         reloadVisibleRange()
+    }
+
+    func expandAgenda(by days: Int) {
+        guard days > 0 else { return }
+        let oldHorizon = lookaheadHorizonDays
+        extraAgendaDays += days
+        if lookaheadHorizonDays > oldHorizon {
+            reloadVisibleRange()
+        }
     }
 
     func goToToday() {
@@ -227,7 +245,7 @@ final class MobileEventStore: ObservableObject {
         guard let firstGridDay = gridWeeks.first?.first, let lastGridDay = gridWeeks.last?.last else { return }
 
         let selectedStart = cal.startOfDay(for: selectedDate)
-        let agendaEnd = cal.date(byAdding: .day, value: max(1, agendaDays) + 1, to: selectedStart)!
+        let agendaEnd = cal.date(byAdding: .day, value: lookaheadHorizonDays, to: selectedStart)!
         let rangeStart = min(firstGridDay, selectedStart)
         let rangeEnd = max(cal.date(byAdding: .day, value: 1, to: lastGridDay)!, agendaEnd)
         let selectedCalIDs = Set(calendars.filter(\.isSelected).map(\.id))

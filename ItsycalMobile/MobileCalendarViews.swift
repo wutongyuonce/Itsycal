@@ -297,11 +297,22 @@ struct MobileAgendaView: View {
 
     var body: some View {
         let start = calendar.startOfDay(for: eventStore.selectedDate)
-        let days = (0..<max(1, eventStore.agendaDays)).compactMap {
-            calendar.date(byAdding: .day, value: $0, to: start)
-        }
+        let shownDays = eventStore.totalAgendaDays
+        let entries = MobileCalendarCore.agendaEntries(
+            from: start,
+            shownDays: shownDays,
+            itemsByDay: eventStore.itemsByDay,
+            calendar: calendar
+        )
+        let expansion = MobileCalendarCore.agendaExpansion(
+            from: start,
+            shownDays: shownDays,
+            itemsByDay: eventStore.itemsByDay,
+            calendar: calendar,
+            lookaheadDays: eventStore.lookaheadHorizonDays
+        )
         let showOverdue = calendar.isDateInToday(eventStore.selectedDate) && !eventStore.overdueReminders.isEmpty
-        let isEmpty = !showOverdue && days.allSatisfy { (eventStore.itemsByDay[$0] ?? []).isEmpty }
+        let isEmpty = !showOverdue && entries.isEmpty
 
         List {
             if !eventStore.calendarAuthorized {
@@ -332,8 +343,17 @@ struct MobileAgendaView: View {
                     .listRowInsets(rowInsets)
                 }
             }
-            ForEach(days, id: \.self) { day in
-                if let items = eventStore.itemsByDay[day], !items.isEmpty {
+            ForEach(entries) { entry in
+                switch entry {
+                case .skippedEmptyDays(_, let count):
+                    Text("已略过中间无日程的 \(count) 天")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
+                        .listRowInsets(rowInsets)
+                        .listRowSeparator(.hidden)
+                case .day(let day, let items):
                     Section {
                         ForEach(items) { row($0) }
                     } header: {
@@ -341,13 +361,43 @@ struct MobileAgendaView: View {
                     }
                 }
             }
-            if isEmpty && eventStore.calendarAuthorized {
-                Text("没有日程")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 20)
+            if eventStore.calendarAuthorized {
+                if isEmpty {
+                    Text(expansion == nil ? "没有日程" : "当前 \(shownDays) 天内没有日程")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 16)
+                        .listRowInsets(rowInsets)
+                        .listRowSeparator(.hidden)
+                }
+                if let expansion {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            eventStore.expandAgenda(by: expansion.stepDays)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.down.circle")
+                            Text(expansionTitle(expansion))
+                        }
+                        .font(.footnote.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .listRowInsets(rowInsets)
                     .listRowSeparator(.hidden)
+                } else if !isEmpty {
+                    Text("后续暂无更多日程")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .listRowInsets(rowInsets)
+                        .listRowSeparator(.hidden)
+                }
             }
         }
         .listStyle(.plain)
@@ -459,5 +509,13 @@ struct MobileAgendaView: View {
         }
         guard let location = item.location, !location.isEmpty else { return time }
         return time + " · " + location
+    }
+
+    private func expansionTitle(_ expansion: MobileAgendaExpansion) -> String {
+        if expansion.skippedEmptyDays > 0 {
+            let dateStr = expansion.nextWindowStart.formatted(.dateTime.month().day())
+            return "下周无日程 · 展开至 \(dateStr)（\(expansion.nextWindowItemCount) 项）"
+        }
+        return "展开下一周（\(expansion.nextWindowItemCount) 项）"
     }
 }
