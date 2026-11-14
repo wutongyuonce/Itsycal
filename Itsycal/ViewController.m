@@ -21,12 +21,17 @@
 #import "PrefsGeneralVC.h"
 #import "PrefsAppearanceVC.h"
 #import "PrefsEventsVC.h"
+#import "PrefsAIVC.h"
 #import "PrefsAboutVC.h"
+#import "Itsycal-Swift.h"
 #import "MoButton.h"
 #import "MoPopover.h"
 #import "MoVFLHelper.h"
 #import "MoUtils.h"
 #import "Themer.h"
+
+@interface ViewController () <AIAssistantHostDelegate>
+@end
 
 // Keys observed in NSUserDefaults for preference changes. Registered in
 // -fileNotifications and unregistered in -dealloc.
@@ -45,7 +50,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     NSCalendar    *_nsCal;
     NSStatusItem  *_statusItem;
     id             _rightClickMonitor;
-    MoButton      *_btnAdd, *_btnCal, *_btnOpt, *_btnPin;
+    MoButton      *_btnAdd, *_btnAI, *_btnCal, *_btnOpt, *_btnPin;
     NSWindowController    *_prefsWC;
     AgendaViewController  *_agendaVC;
     TooltipController     *_tooltips;
@@ -63,6 +68,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     NSRect     _fallbackAnchor;
     BOOL       _usesFallbackPosition;
     NSPopover *_newEventPopover;
+    NSPopover *_aiPopover;
     NSMutableArray *_notificationTokens;
 }
 
@@ -115,8 +121,16 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         return btn;
     };
 
-    // Add event, Calendar.app, and Options buttons
+    // Add event, AI assistant, Calendar.app, and Options buttons
     _btnAdd = btn(@"btnAdd", @"n", @selector(addCalendarEvent:));
+    _btnAI  = [MoButton new];
+    [_btnAI setTarget:self];
+    [_btnAI setAction:@selector(showAIAssistant:)];
+    [_btnAI setContentTintColor:Theme.buttonTintColor];
+    [_btnAI setImage:[AIAssistantBridge buttonIcon]];
+    [_btnAI setKeyEquivalent:@"k"];
+    [_btnAI setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+    [v addSubview:_btnAI];
     _btnCal = btn(@"btnCal", @"o", @selector(showCalendarApp:));
     _btnOpt = btn(@"btnOpt", @"", @selector(showOptionsMenu:));
     _btnPin = btn(@"btnPin", @"p", @selector(pin:));
@@ -127,6 +141,9 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     // The buttons' tooltips. Their badges show the key equivalents.
     [_tooltips addTooltipToView:_btnAdd label:^NSString *{
         return NSLocalizedString(@"New Event", @"");
+    } shortcut:nil];
+    [_tooltips addTooltipToView:_btnAI label:^NSString *{
+        return NSLocalizedString(@"AI Assistant", @"");
     } shortcut:nil];
     [_tooltips addTooltipToView:_btnCal label:^NSString *{
         return NSLocalizedString(@"Open Calendar", @"");
@@ -149,10 +166,10 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [v addSubview:agenda];
 
     // Constraints
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:nil views:NSDictionaryOfVariableBindings(_moCal, _btnAdd, _btnCal, _btnOpt, _btnPin, agenda)];
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:nil views:NSDictionaryOfVariableBindings(_moCal, _btnAdd, _btnAI, _btnCal, _btnOpt, _btnPin, agenda)];
     [vfl :@"H:|-2-[_moCal]-2-|"];
     [vfl :@"H:|[agenda]|"];
-    [vfl :@"H:|-8-[_btnAdd]-(>=0)-[_btnPin]-6-[_btnCal]-6-[_btnOpt]-8-|" :NSLayoutFormatAlignAllCenterY];
+    [vfl :@"H:|-8-[_btnAdd]-6-[_btnAI]-(>=0)-[_btnPin]-6-[_btnCal]-6-[_btnOpt]-8-|" :NSLayoutFormatAlignAllCenterY];
     [vfl :@"V:|[_moCal]-6-[_btnOpt(22)]-1-[agenda]-(-1)-|"];
     
     self.view = v;
@@ -256,9 +273,31 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     else if (keyChar == 'j' && cmdFlag) {
         if (![_agendaVC clickFirstActiveZoomButton]) NSBeep();
     }
+    else if (keyChar == 'k' && cmdFlag) {
+        [self showAIAssistant:self];
+    }
     else {
         [super keyDown:theEvent];
     }
+}
+
+- (void)showAIAssistant:(id)sender
+{
+    if (_aiPopover.shown) {
+        [_aiPopover close];
+        return;
+    }
+    [_newEventPopover close];
+    [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+
+    if (!_aiPopover) {
+        _aiPopover = [MoPopover new];
+        _aiPopover.animates = NO;
+        _aiPopover.behavior = NSPopoverBehaviorSemitransient;
+        _aiPopover.delegate = self;
+        _aiPopover.contentViewController = [AIAssistantBridge makePopoverViewControllerWithDelegate:self];
+    }
+    [_aiPopover showRelativeToRect:_btnAI.bounds ofView:_btnAI preferredEdge:NSRectEdgeMinX];
 }
 
 - (void)addCalendarEvent:(id)sender
@@ -426,15 +465,17 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         PrefsGeneralVC *prefsGeneralVC = [PrefsGeneralVC new];
         PrefsEventsVC *prefsEventsVC = [PrefsEventsVC new];
         PrefsAppearanceVC *prefsAppearanceVC = [PrefsAppearanceVC new];
+        PrefsAIVC *prefsAIVC = [PrefsAIVC new];
         PrefsAboutVC *prefsAboutVC = [PrefsAboutVC new];
         prefsEventsVC.ec = _ec;
         prefsGeneralVC.title = NSLocalizedString(@"General", @"General prefs tab label");
         prefsEventsVC.title = NSLocalizedString(@"Events", @"Events prefs tab label");
         prefsAppearanceVC.title = NSLocalizedString(@"Appearance", @"Appearance prefs tab label");
+        prefsAIVC.title = NSLocalizedString(@"AI", @"AI prefs tab label");
         prefsAboutVC.title = NSLocalizedString(@"About", @"About prefs tab label");
         // prefsVC is the container VC the tab VCs.
         PrefsVC *prefsVC = [PrefsVC new];
-        prefsVC.childViewControllers = @[prefsGeneralVC, prefsEventsVC, prefsAppearanceVC, prefsAboutVC];
+        prefsVC.childViewControllers = @[prefsGeneralVC, prefsEventsVC, prefsAppearanceVC, prefsAIVC, prefsAboutVC];
         // Create prefs WC.
         NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSZeroRect styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO];
         panel.hidesOnDeactivate = NO;
@@ -465,6 +506,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
     [_newEventPopover close];
+    [_aiPopover close];
     [self.prefsVC showAbout];
     [self.prefsWC showWindow:self];
 }
@@ -473,6 +515,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
     [_newEventPopover close];
+    [_aiPopover close];
     [self.prefsVC showPrefs];
     [self.prefsWC showWindow:self];
 }
@@ -1009,6 +1052,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     [_tooltips hideImmediately];
     [self.itsycalWindow orderOut:self];
     [_newEventPopover close];
+    [_aiPopover close];
     _inactiveTime = MonotonicClockTime();
     // The one-day agenda from a widget tap lasts until the window closes.
     if (_showWidgetDay) {
@@ -1020,6 +1064,10 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 - (void)cancel:(id)sender
 {
     // User pressed 'esc'.
+    if (_aiPopover.shown) {
+        [_aiPopover close];
+        return;
+    }
     [self hideItsycalWindow];
 }
 
@@ -1030,6 +1078,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
 - (void)windowDidResignKey:(NSNotification *)notification
 {
+    if (_aiPopover.shown) return;
     if (_btnPin.state == NSControlStateValueOff) {
         [self hideItsycalWindow];
     }
@@ -1039,6 +1088,9 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 {
     if (notification.object == _newEventPopover) {
         _newEventPopover = nil;
+    }
+    else if (notification.object == _aiPopover && _btnPin.state == NSControlStateValueOff && !self.itsycalWindow.isKeyWindow) {
+        [self hideItsycalWindow];
     }
 }
 
@@ -1653,6 +1705,247 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         // must be rebuilt when the user changes the first day of the week.
         [_ec refetchAll];
     }
+}
+
+#pragma mark -
+#pragma mark AIAssistantHostDelegate
+
+- (NSDate *)aiSelectedDate
+{
+    return MakeNSDateWithDate(_moCal.selectedDate, _nsCal);
+}
+
+- (NSArray<AICalendarOptionObjC *> *)aiAvailableCalendars
+{
+    NSMutableArray<AICalendarOptionObjC *> *options = [NSMutableArray new];
+    NSString *defaultEventID = [_ec defaultCalendarIdentifier];
+    NSString *defaultReminderID = [_ec defaultReminderCalendarIdentifier];
+    for (id obj in [_ec sourcesAndCalendars]) {
+        if (![obj isKindOfClass:[CalendarInfo class]]) continue;
+        CalendarInfo *calInfo = obj;
+        EKCalendar *cal = calInfo.calendar;
+        if (!cal.allowsContentModifications) continue;
+        BOOL allowsEvents = (cal.allowedEntityTypes & EKEntityMaskEvent) != 0;
+        BOOL allowsReminders = (cal.allowedEntityTypes & EKEntityMaskReminder) != 0;
+        if (!allowsEvents && !allowsReminders) continue;
+        AICalendarOptionObjC *opt = [[AICalendarOptionObjC alloc]
+            initWithIdentifier:cal.calendarIdentifier ?: @""
+                         title:cal.title ?: @""
+                        source:cal.source.title ?: @""
+                  allowsEvents:allowsEvents
+               allowsReminders:allowsReminders
+                isDefaultEvent:[cal.calendarIdentifier isEqualToString:defaultEventID]
+             isDefaultReminder:[cal.calendarIdentifier isEqualToString:defaultReminderID]
+                         color:cal.color ?: NSColor.systemBlueColor];
+        [options addObject:opt];
+    }
+    return options;
+}
+
+- (NSArray<AIExistingItemObjC *> *)aiExistingItems
+{
+    NSMutableArray<AIExistingItemObjC *> *items = [NSMutableArray new];
+    NSMutableSet<NSString *> *seenEventIDs = [NSMutableSet new];
+    for (NSDate *day in _filteredEventsForDate) {
+        for (EventInfo *info in _filteredEventsForDate[day]) {
+            if (info.event) {
+                NSString *eid = [NSString stringWithFormat:@"%@-%f", info.event.eventIdentifier ?: info.event.title, info.event.startDate.timeIntervalSince1970];
+                if ([seenEventIDs containsObject:eid]) continue;
+                [seenEventIDs addObject:eid];
+                [items addObject:[[AIExistingItemObjC alloc]
+                    initWithTitle:info.event.title ?: @""
+                        startDate:info.event.startDate ?: day
+                          endDate:info.event.endDate ?: day
+                         isAllDay:info.event.isAllDay
+                    calendarTitle:info.event.calendar.title ?: @""
+                       isReminder:NO]];
+            }
+            else if (info.reminder && !info.isFutureOccurrence) {
+                [items addObject:[[AIExistingItemObjC alloc]
+                    initWithTitle:info.reminder.title ?: @""
+                        startDate:info.dueDate ?: day
+                          endDate:info.dueDate ?: day
+                         isAllDay:info.isAllDay
+                    calendarTitle:info.reminder.calendar.title ?: @""
+                       isReminder:YES]];
+            }
+        }
+    }
+    return items;
+}
+
+- (void)aiCommitItems:(NSArray<AICommitItemObjC *> *)items completion:(void (^)(BOOL, NSString * _Nullable))completion
+{
+    BOOL hasReminders = NO;
+    BOOL hasEvents = NO;
+    for (AICommitItemObjC *item in items) {
+        if (item.isReminder) hasReminders = YES;
+        else hasEvents = YES;
+    }
+
+    if (hasEvents && !_ec.calendarAccessGranted) {
+        completion(NO, NSLocalizedString(@"Calendar access was denied.", @""));
+        return;
+    }
+
+    if (hasReminders && _ec.remindersAuthorizationStatus != EKAuthorizationStatusFullAccess) {
+        __weak typeof(self) weakSelf = self;
+        [_ec requestRemindersAccessWithCompletion:^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (strongSelf->_ec.remindersAuthorizationStatus != EKAuthorizationStatusFullAccess) {
+                completion(NO, NSLocalizedString(@"Reminders access denied. You can change this setting in System Settings › Privacy & Security › Reminders", @""));
+                return;
+            }
+            [strongSelf _commitVerifiedAIItems:items completion:completion];
+        }];
+        return;
+    }
+
+    [self _commitVerifiedAIItems:items completion:completion];
+}
+
+- (void)_commitVerifiedAIItems:(NSArray<AICommitItemObjC *> *)items completion:(void (^)(BOOL, NSString * _Nullable))completion
+{
+    NSMutableDictionary<NSString *, EKCalendar *> *eventCalendars = [NSMutableDictionary new];
+    NSMutableDictionary<NSString *, EKCalendar *> *reminderCalendars = [NSMutableDictionary new];
+    EKCalendar *fallbackEventCal = nil;
+    EKCalendar *fallbackReminderCal = nil;
+    NSString *defaultEventID = [_ec defaultCalendarIdentifier];
+    NSString *defaultReminderID = [_ec defaultReminderCalendarIdentifier];
+
+    for (id obj in [_ec sourcesAndCalendars]) {
+        if (![obj isKindOfClass:[CalendarInfo class]]) continue;
+        EKCalendar *cal = ((CalendarInfo *)obj).calendar;
+        if (!cal.allowsContentModifications) continue;
+        if (cal.allowedEntityTypes & EKEntityMaskEvent) {
+            eventCalendars[cal.calendarIdentifier] = cal;
+            if (fallbackEventCal == nil || [cal.calendarIdentifier isEqualToString:defaultEventID]) {
+                fallbackEventCal = cal;
+            }
+        }
+        if (cal.allowedEntityTypes & EKEntityMaskReminder) {
+            reminderCalendars[cal.calendarIdentifier] = cal;
+            if (fallbackReminderCal == nil || [cal.calendarIdentifier isEqualToString:defaultReminderID]) {
+                fallbackReminderCal = cal;
+            }
+        }
+    }
+
+    NSMutableArray<EKEvent *> *eventsToSave = [NSMutableArray new];
+    NSMutableArray<EKReminder *> *remindersToSave = [NSMutableArray new];
+    NSMutableSet<NSString *> *usedCalendarIDs = [NSMutableSet new];
+
+    for (AICommitItemObjC *item in items) {
+        EKRecurrenceRule *rule = [self _recurrenceRuleForFrequency:item.repeatFrequency endDate:item.repeatEndDate];
+        if (!item.isReminder) {
+            EKCalendar *targetCal = eventCalendars[item.calendarID] ?: fallbackEventCal;
+            if (!targetCal) {
+                completion(NO, NSLocalizedString(@"There are no modifiable calendars.", @""));
+                return;
+            }
+            EKEvent *ev = [_ec newEvent];
+            ev.title = item.title;
+            ev.location = item.location;
+            ev.notes = item.notes;
+            ev.allDay = item.isAllDay;
+            ev.startDate = item.startDate;
+            ev.endDate = item.endDate;
+            ev.calendar = targetCal;
+            ev.timeZone = item.isAllDay ? nil : [NSTimeZone localTimeZone];
+            if (rule) ev.recurrenceRules = @[rule];
+            if (item.alertMinutes != nil) {
+                for (EKAlarm *alarm in [ev.alarms copy]) [ev removeAlarm:alarm];
+                [ev addAlarm:[EKAlarm alarmWithRelativeOffset:-(item.alertMinutes.doubleValue * 60.0)]];
+            }
+            [eventsToSave addObject:ev];
+            [usedCalendarIDs addObject:targetCal.calendarIdentifier];
+        }
+        else {
+            EKCalendar *targetList = reminderCalendars[item.calendarID] ?: fallbackReminderCal;
+            if (!targetList) {
+                completion(NO, NSLocalizedString(@"No modifiable reminder list found. Enable Reminders in Settings › Events.", @""));
+                return;
+            }
+            EKReminder *rem = [_ec newReminder];
+            rem.title = item.title;
+            rem.notes = item.notes;
+            rem.calendar = targetList;
+            rem.priority = item.priority;
+            NSCalendarUnit units = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay;
+            if (item.hasTime) {
+                units |= (NSCalendarUnitHour | NSCalendarUnitMinute);
+            }
+            NSDateComponents *dueComp = [_nsCal components:units fromDate:item.startDate];
+            dueComp.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+            if (item.hasTime) dueComp.timeZone = [NSTimeZone localTimeZone];
+            rem.dueDateComponents = dueComp;
+            if (rule) {
+                rem.startDateComponents = [dueComp copy];
+                rem.recurrenceRules = @[rule];
+            }
+            if (item.alertMinutes != nil) {
+                for (EKAlarm *alarm in [rem.alarms copy]) [rem removeAlarm:alarm];
+                NSDate *alarmDate = [item.startDate dateByAddingTimeInterval:-(item.alertMinutes.doubleValue * 60.0)];
+                [rem addAlarm:[EKAlarm alarmWithAbsoluteDate:alarmDate]];
+            }
+            [remindersToSave addObject:rem];
+            [usedCalendarIDs addObject:targetList.calendarIdentifier];
+        }
+    }
+
+    NSError *error = nil;
+    if (![_ec saveBatchEvents:eventsToSave reminders:remindersToSave undoManager:self.itsycalWindow.undoManager error:&error]) {
+        completion(NO, error.localizedDescription ?: @"保存失败");
+        return;
+    }
+
+    // Ensure the target calendars/lists are checked in Itsycal so newly created items appear immediately.
+    for (NSString *calID in usedCalendarIDs) {
+        [_ec updateSelectedCalendarsForIdentifier:calID selected:YES];
+    }
+    if (items.firstObject.startDate) {
+        _moCal.selectedDate = MakeDateWithNSDate(items.firstObject.startDate, _nsCal);
+        [self updateAgenda];
+    }
+    completion(YES, nil);
+}
+
+- (EKRecurrenceRule *)_recurrenceRuleForFrequency:(NSString *)freq endDate:(NSDate *)endDate
+{
+    if (freq == nil || [freq isEqualToString:@"none"] || [freq isEqualToString:@""]) return nil;
+    EKRecurrenceFrequency ekFreq = EKRecurrenceFrequencyDaily;
+    NSInteger interval = 1;
+    if ([freq isEqualToString:@"daily"]) {
+        ekFreq = EKRecurrenceFrequencyDaily;
+    } else if ([freq isEqualToString:@"weekly"]) {
+        ekFreq = EKRecurrenceFrequencyWeekly;
+    } else if ([freq isEqualToString:@"biweekly"]) {
+        ekFreq = EKRecurrenceFrequencyWeekly;
+        interval = 2;
+    } else if ([freq isEqualToString:@"monthly"]) {
+        ekFreq = EKRecurrenceFrequencyMonthly;
+    } else if ([freq isEqualToString:@"yearly"]) {
+        ekFreq = EKRecurrenceFrequencyYearly;
+    } else {
+        return nil;
+    }
+    EKRecurrenceEnd *end = endDate ? [EKRecurrenceEnd recurrenceEndWithEndDate:endDate] : nil;
+    return [[EKRecurrenceRule alloc] initRecurrenceWithFrequency:ekFreq interval:interval end:end];
+}
+
+- (void)aiOpenSettings
+{
+    [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+    [_newEventPopover close];
+    [_aiPopover close];
+    [self.prefsVC showAI];
+    [self.prefsWC showWindow:self];
+}
+
+- (void)aiClosePopover
+{
+    [_aiPopover close];
 }
 
 @end

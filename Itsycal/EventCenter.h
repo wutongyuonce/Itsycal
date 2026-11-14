@@ -29,6 +29,7 @@
 @property (nonatomic, readonly) EKAuthorizationStatus remindersAuthorizationStatus;
 
 @property (nonatomic, readonly) NSString *defaultCalendarIdentifier;
+@property (nonatomic, readonly) NSString *defaultReminderCalendarIdentifier;
 
 // Delegate is responsible for...
 @property (nonatomic, weak) id<EventCenterDelegate> delegate;
@@ -36,12 +37,17 @@
 - (instancetype)initWithCalendar:(NSCalendar *)calendar delegate:(id<EventCenterDelegate>)delegate;
 
 - (EKEvent *)newEvent;
+- (EKReminder *)newReminder;
 
 // Save a new event and register its undo (remove it) and
 // redo (save it again) with undoManager. Undo and redo do
 // nothing but beep if the event has changed since, e.g. in
 // Calendar or on another device.
 - (BOOL)saveNewEvent:(EKEvent *)event undoManager:(NSUndoManager *)undoManager error:(NSError **)error;
+
+// Atomically save a batch of new events and reminders in one store
+// commit, and register a single combined undo/redo action with undoManager.
+- (BOOL)saveBatchEvents:(NSArray<EKEvent *> *)events reminders:(NSArray<EKReminder *> *)reminders undoManager:(NSUndoManager *)undoManager error:(NSError **)error;
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error;
 

@@ -66,7 +66,9 @@ static NSComparisonResult CompareItemsOnDay(EventInfo *e1, EventInfo *e2); // se
 - (void)restoreReminder:(EKReminder *)reminder;
 @end
 typedef EKEvent *(^EventMaker)(EKEventStore *store);
+typedef EKReminder *(^ReminderMaker)(EKEventStore *store);
 static EventMaker EventMakerForEvent(EKEvent *event); // see below
+static ReminderMaker ReminderMakerForReminder(EKReminder *reminder); // see below
 
 @implementation EventCenter {                      // Accessed on:
     EKEventStore         *_store;
@@ -165,8 +167,17 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     return cal.calendarIdentifier;
 }
 
+- (NSString *)defaultReminderCalendarIdentifier {
+    EKCalendar *cal = [_store defaultCalendarForNewReminders];
+    return cal.calendarIdentifier;
+}
+
 - (EKEvent *)newEvent {
     return [EKEvent eventWithEventStore:_store];
+}
+
+- (EKReminder *)newReminder {
+    return [EKReminder reminderWithEventStore:_store];
 }
 
 - (BOOL)saveNewEvent:(EKEvent *)event undoManager:(NSUndoManager *)undoManager error:(NSError **)error {
@@ -177,6 +188,42 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     // removed can't be saved again.
     [self _registerUndoForNewEvent:event maker:EventMakerForEvent(event) undoManager:undoManager];
     return YES;
+}
+
+- (BOOL)saveBatchEvents:(NSArray<EKEvent *> *)events reminders:(NSArray<EKReminder *> *)reminders undoManager:(NSUndoManager *)undoManager error:(NSError **)error {
+    if (events.count == 0 && reminders.count == 0) return YES;
+    NSMutableArray<EventMaker> *eventMakers = [NSMutableArray new];
+    NSMutableArray<ReminderMaker> *reminderMakers = [NSMutableArray new];
+    for (EKEvent *event in events) {
+        [eventMakers addObject:EventMakerForEvent(event)];
+        if (![_store saveEvent:event span:EKSpanThisEvent commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    for (EKReminder *reminder in reminders) {
+        [reminderMakers addObject:ReminderMakerForReminder(reminder)];
+        if (![_store saveReminder:reminder commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    if (![_store commit:error]) {
+        [self _rollbackStoreAndRefetch];
+        return NO;
+    }
+    if (undoManager) {
+        [self _registerUndoForBatchEvents:events eventMakers:eventMakers reminders:reminders reminderMakers:reminderMakers undoManager:undoManager];
+    }
+    [self refetchAll];
+    return YES;
+}
+
+- (void)_rollbackStoreAndRefetch {
+    dispatch_sync(_queueWork, ^{
+        [self->_store reset];
+    });
+    [self refetchAll];
 }
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error {
@@ -328,6 +375,82 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
                 return;
             }
             [ec _registerUndoForNewEvent:copy maker:maker undoManager:weakUndoManager];
+        }];
+    }];
+}
+
+- (void)_registerUndoForBatchEvents:(NSArray<EKEvent *> *)events
+                        eventMakers:(NSArray<EventMaker> *)eventMakers
+                          reminders:(NSArray<EKReminder *> *)reminders
+                     reminderMakers:(NSArray<ReminderMaker> *)reminderMakers
+                        undoManager:(NSUndoManager *)undoManager {
+    NSMutableArray<NSString *> *eventIDs = [NSMutableArray new];
+    NSMutableArray<NSArray *> *eventFingerprints = [NSMutableArray new];
+    for (EKEvent *event in events) {
+        [eventIDs addObject:event.eventIdentifier ?: event.calendarItemIdentifier ?: @""];
+        [eventFingerprints addObject:[self _undoFingerprintForEvent:event]];
+    }
+    NSMutableArray<NSString *> *reminderIDs = [NSMutableArray new];
+    NSMutableArray<NSArray *> *reminderFingerprints = [NSMutableArray new];
+    for (EKReminder *reminder in reminders) {
+        [reminderIDs addObject:reminder.calendarItemIdentifier ?: @""];
+        [reminderFingerprints addObject:[self _undoFingerprintForReminder:reminder]];
+    }
+    __weak NSUndoManager *weakUndoManager = undoManager;
+    [undoManager registerUndoWithTarget:self handler:^(EventCenter *ec) {
+        NSMutableArray<EKEvent *> *savedEvents = [NSMutableArray new];
+        for (NSUInteger i = 0; i < eventIDs.count; i++) {
+            EKEvent *saved = [ec->_store eventWithIdentifier:eventIDs[i]];
+            if (saved == nil) {
+                EKCalendarItem *item = [ec->_store calendarItemWithIdentifier:eventIDs[i]];
+                if ([item isKindOfClass:[EKEvent class]]) saved = (EKEvent *)item;
+            }
+            if (saved == nil || ![[ec _undoFingerprintForEvent:saved] isEqual:eventFingerprints[i]]) {
+                NSBeep();
+                return;
+            }
+            [savedEvents addObject:saved];
+        }
+        NSMutableArray<EKReminder *> *savedReminders = [NSMutableArray new];
+        for (NSUInteger i = 0; i < reminderIDs.count; i++) {
+            EKReminder *saved = [ec _reminderWithIdentifier:reminderIDs[i]];
+            if (saved == nil || ![[ec _undoFingerprintForReminder:saved] isEqual:reminderFingerprints[i]]) {
+                NSBeep();
+                return;
+            }
+            [savedReminders addObject:saved];
+        }
+        NSError *error = nil;
+        for (EKEvent *saved in savedEvents) {
+            EKSpan span = saved.hasRecurrenceRules ? EKSpanFutureEvents : EKSpanThisEvent;
+            if (![ec->_store removeEvent:saved span:span commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        for (EKReminder *saved in savedReminders) {
+            if (![ec->_store removeReminder:saved commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        if (![ec->_store commit:&error]) {
+            [ec _rollbackStoreAndRefetch];
+            if (error != nil) [[NSAlert alertWithError:error] runModal];
+            return;
+        }
+        [ec refetchAll];
+        [weakUndoManager registerUndoWithTarget:ec handler:^(EventCenter *ec) {
+            NSMutableArray<EKEvent *> *copiedEvents = [NSMutableArray new];
+            for (EventMaker maker in eventMakers) [copiedEvents addObject:maker(ec->_store)];
+            NSMutableArray<EKReminder *> *copiedReminders = [NSMutableArray new];
+            for (ReminderMaker maker in reminderMakers) [copiedReminders addObject:maker(ec->_store)];
+            NSError *redoError = nil;
+            if (![ec saveBatchEvents:copiedEvents reminders:copiedReminders undoManager:weakUndoManager error:&redoError]) {
+                if (redoError != nil) [[NSAlert alertWithError:redoError] runModal];
+            }
         }];
     }];
 }
@@ -507,6 +630,15 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     return @[event.title ?: @"",
              event.calendar.calendarIdentifier ?: @"",
              @(event.isAllDay), start, end];
+}
+
+- (NSArray *)_undoFingerprintForReminder:(EKReminder *)reminder {
+    BOOL hasTime = NO;
+    NSDate *due = DueDateForReminder(reminder, &hasTime, NULL);
+    id dueValue = due ? @(floor(due.timeIntervalSinceReferenceDate / 60)) : NSNull.null;
+    return @[reminder.title ?: @"",
+             reminder.calendar.calendarIdentifier ?: @"",
+             @(reminder.isCompleted), @(hasTime), dueValue];
 }
 
 #pragma mark - Private (GCD thread pool)
@@ -1220,6 +1352,49 @@ static EventMaker EventMakerForEvent(EKEvent *event)
         }
         for (NSNumber *offset in alarmOffsets) {
             [copy addAlarm:[EKAlarm alarmWithRelativeOffset:offset.doubleValue]];
+        }
+        return copy;
+    };
+}
+
+static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
+{
+    NSString *title = reminder.title;
+    NSString *calendarID = reminder.calendar.calendarIdentifier;
+    NSString *notes = reminder.notes;
+    NSURL *URL = reminder.URL;
+    NSUInteger priority = reminder.priority;
+    NSDateComponents *dueDateComponents = [reminder.dueDateComponents copy];
+    NSDateComponents *startDateComponents = [reminder.startDateComponents copy];
+    EKRecurrenceRule *rule = reminder.recurrenceRules.firstObject;
+    BOOL hasRule = rule != nil;
+    EKRecurrenceFrequency frequency = rule.frequency;
+    NSInteger interval = rule.interval;
+    NSDate *ruleEndDate = rule.recurrenceEnd.endDate;
+    NSArray<NSDictionary *> *alarmValues = AlarmValuesOfReminder(reminder);
+    return ^EKReminder *(EKEventStore *store) {
+        EKReminder *copy = [EKReminder reminderWithEventStore:store];
+        copy.title = title;
+        copy.calendar = [store calendarWithIdentifier:calendarID];
+        copy.notes = notes;
+        copy.URL = URL;
+        copy.priority = priority;
+        copy.dueDateComponents = [dueDateComponents copy];
+        copy.startDateComponents = [startDateComponents copy];
+        if (hasRule) {
+            EKRecurrenceEnd *end = ruleEndDate ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate] : nil;
+            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:end]];
+        }
+        for (EKAlarm *alarm in copy.alarms) {
+            [copy removeAlarm:alarm];
+        }
+        for (NSDictionary *value in alarmValues) {
+            EKAlarm *alarm = value[@"absoluteDate"]
+                ? [EKAlarm alarmWithAbsoluteDate:value[@"absoluteDate"]]
+                : [EKAlarm alarmWithRelativeOffset:[value[@"relativeOffset"] doubleValue]];
+            alarm.emailAddress = value[@"emailAddress"];
+            alarm.soundName = value[@"soundName"];
+            [copy addAlarm:alarm];
         }
         return copy;
     };

@@ -5,6 +5,8 @@
 
 #import "PrefsVC.h"
 #import "PrefsAboutVC.h"
+#import "PrefsAIVC.h"
+#import "Itsycal-Swift.h"
 
 @implementation PrefsVC
 {
@@ -68,6 +70,14 @@
 - (void)showAbout
 {
     [self selectTabAtIndex:[self aboutTabIndex]];
+}
+
+- (void)showAI
+{
+    NSInteger idx = [self.childViewControllers indexOfObjectPassingTest:^BOOL(NSViewController *vc, NSUInteger i, BOOL *stop) {
+        return [vc isKindOfClass:[PrefsAIVC class]];
+    }];
+    if (idx != NSNotFound) [self selectTabAtIndex:idx];
 }
 
 - (void)showPrefs
@@ -164,7 +174,8 @@
 {
     NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
     item.label = itemIdentifier;
-    item.image = [NSImage imageNamed:NSStringFromClass([[self viewControllerForItemIdentifier:itemIdentifier] class])];
+    NSString *className = NSStringFromClass([[self viewControllerForItemIdentifier:itemIdentifier] class]);
+    item.image = [NSImage imageNamed:className] ?: [AIAssistantBridge toolbarIconFor:className];
     item.target = self;
     item.action = @selector(toolbarItemClicked:);
     item.tag = [_toolbarIdentifiers indexOfObject:itemIdentifier];

@@ -13,8 +13,23 @@
 @property NSArray<EKEvent *> *fixtures;
 @property NSDate *queryStart;
 @property NSDate *queryEnd;
+@property NSMutableDictionary<NSString *, EKEvent *> *savedEvents;
+@property NSMutableDictionary<NSString *, EKReminder *> *savedReminders;
+@property NSMutableDictionary<NSString *, EKCalendar *> *calendarsByID;
+@property NSInteger commitCount;
+@property BOOL failOnCommit;
+@property BOOL didReset;
 @end
 @implementation MemoryStore
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _savedEvents = [NSMutableDictionary new];
+        _savedReminders = [NSMutableDictionary new];
+        _calendarsByID = [NSMutableDictionary new];
+    }
+    return self;
+}
 - (NSPredicate *)predicateForEventsWithStartDate:(NSDate *)start endDate:(NSDate *)end calendars:(NSArray *)calendars {
     self.queryStart = start;
     self.queryEnd = end;
@@ -27,6 +42,50 @@
             [event.endDate compare:self.queryStart] != NSOrderedAscending) [result addObject:event];
     }
     return result;
+}
+- (EKCalendar *)calendarWithIdentifier:(NSString *)identifier {
+    return self.calendarsByID[identifier];
+}
+- (EKEvent *)eventWithIdentifier:(NSString *)identifier {
+    return self.savedEvents[identifier];
+}
+- (EKCalendarItem *)calendarItemWithIdentifier:(NSString *)identifier {
+    return self.savedReminders[identifier] ?: self.savedEvents[identifier];
+}
+- (BOOL)saveEvent:(EKEvent *)event span:(EKSpan)span commit:(BOOL)commit error:(NSError **)error {
+    NSString *key = event.eventIdentifier ?: event.calendarItemIdentifier;
+    self.savedEvents[key] = event;
+    if (commit) return [self commit:error];
+    return YES;
+}
+- (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span commit:(BOOL)commit error:(NSError **)error {
+    NSString *key = event.eventIdentifier ?: event.calendarItemIdentifier;
+    if (key) [self.savedEvents removeObjectForKey:key];
+    if (commit) return [self commit:error];
+    return YES;
+}
+- (BOOL)saveReminder:(EKReminder *)reminder commit:(BOOL)commit error:(NSError **)error {
+    self.savedReminders[reminder.calendarItemIdentifier] = reminder;
+    if (commit) return [self commit:error];
+    return YES;
+}
+- (BOOL)removeReminder:(EKReminder *)reminder commit:(BOOL)commit error:(NSError **)error {
+    if (reminder.calendarItemIdentifier) [self.savedReminders removeObjectForKey:reminder.calendarItemIdentifier];
+    if (commit) return [self commit:error];
+    return YES;
+}
+- (BOOL)commit:(NSError **)error {
+    if (self.failOnCommit) {
+        if (error) *error = [NSError errorWithDomain:@"TestError" code:1 userInfo:nil];
+        return NO;
+    }
+    self.commitCount += 1;
+    return YES;
+}
+- (void)reset {
+    self.didReset = YES;
+    [self.savedEvents removeAllObjects];
+    [self.savedReminders removeAllObjects];
 }
 @end
 
@@ -76,8 +135,11 @@ int main(void) {
         [center setValue:cal forKey:@"cal"];
         [center setValue:[NSMutableDictionary new] forKey:@"eventsForDate"];
         [center setValue:[NSMutableIndexSet new] forKey:@"previouslyFetchedDates"];
+        [center setValue:dispatch_queue_create("test.work", DISPATCH_QUEUE_SERIAL) forKey:@"queueWork"];
+        [center setValue:dispatch_queue_create("test.isol", DISPATCH_QUEUE_SERIAL) forKey:@"queueIsol"];
         [center setValue:dispatch_queue_create("test.calendars", DISPATCH_QUEUE_SERIAL) forKey:@"queueIsol2"];
         CalendarInfo *info = [CalendarInfo new]; info.calendar = calendar;
+        store.calendarsByID[calendar.calendarIdentifier] = calendar;
         [center setValue:@[info] forKey:@"sourcesAndCalendars"];
         // Cache the tail first, then request a range whose head is missing:
         // the last missing day (21st) must still be queried.
@@ -91,6 +153,42 @@ int main(void) {
         NSCAssert(grouped[date(22, 0)] == nil, @"Midnight end must not occupy Thursday");
         NSCAssert([grouped[date(23, 0)] count] == 1, @"Zero-duration midnight event must be retained");
         NSCAssert([grouped[date(25, 0)] count] == 1, @"Re-queried cached days are replaced, not duplicated");
-        puts("EventCenter checks passed: snapshot interval, partial-cache range, cross-midnight and zero-duration grouping");
+
+        // Batch save events + reminders with atomic commit and single Undo/Redo.
+        NSUndoManager *undoManager = [NSUndoManager new];
+        undoManager.groupsByEvent = NO;
+        EKEvent *batchEvent1 = event(@"AI Review 1", date(26, 14), date(26, 15));
+        EKEvent *batchEvent2 = event(@"AI Review 2", date(27, 14), date(27, 15));
+        EKReminder *batchReminder = [center newReminder];
+        batchReminder.calendar = calendar;
+        batchReminder.title = @"Prepare slides";
+        NSDateComponents *dueComp = [cal components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay | NSCalendarUnitHour | NSCalendarUnitMinute fromDate:date(26, 10)];
+        dueComp.calendar = cal;
+        batchReminder.dueDateComponents = dueComp;
+
+        [undoManager beginUndoGrouping];
+        NSError *saveError = nil;
+        BOOL saved = [center saveBatchEvents:@[batchEvent1, batchEvent2] reminders:@[batchReminder] undoManager:undoManager error:&saveError];
+        [undoManager endUndoGrouping];
+        NSCAssert(saved && saveError == nil, @"Batch save must succeed");
+        NSCAssert(store.commitCount == 1, @"Batch save must commit once atomically");
+        NSCAssert(store.savedEvents.count == 2 && store.savedReminders.count == 1, @"All batch items must be stored");
+
+        [undoManager undo];
+        NSCAssert(store.savedEvents.count == 0 && store.savedReminders.count == 0, @"Single undo must remove all batch events and reminders");
+        NSCAssert(store.commitCount == 2, @"Batch undo must commit once atomically");
+
+        [undoManager redo];
+        NSCAssert(store.savedEvents.count == 2 && store.savedReminders.count == 1, @"Single redo must recreate all batch events and reminders");
+        NSCAssert(store.commitCount == 3, @"Batch redo must commit once atomically");
+
+        // Failed commit rolls back via store reset.
+        store.failOnCommit = YES;
+        store.didReset = NO;
+        EKEvent *failEvent = event(@"Should Rollback", date(28, 9), date(28, 10));
+        BOOL failedSave = [center saveBatchEvents:@[failEvent] reminders:@[] undoManager:undoManager error:&saveError];
+        NSCAssert(!failedSave && store.didReset, @"Failed batch commit must reset uncommitted changes");
+
+        puts("EventCenter checks passed: snapshot interval, partial-cache range, cross-midnight, zero-duration, and batch save/undo/redo");
     }
 }
