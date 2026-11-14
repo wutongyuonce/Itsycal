@@ -137,6 +137,18 @@ enum MobileCalendarCheck {
             assertionFailure("Expected skippedEmptyDays entry before offset 25")
         }
 
-        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection, widget links, year/month jump and agenda expansion")
+        // 9. Past-event dimming and past-due reminder red state (matching desktop AgendaViewController.m)
+        let now = day(2026, 11, 16, 14)
+        let endedTodayEvent = MobileAgendaItem(id: "e1", targetIdentifier: "e1", kind: .event, title: "Morning Sync", day: d, startDate: day(2026, 11, 16, 9), endDate: day(2026, 11, 16, 10), isAllDay: false, isRealAllDay: false, hasTime: true, calendarID: "c", calendarTitle: "Work")
+        let upcomingTodayEvent = MobileAgendaItem(id: "e2", targetIdentifier: "e2", kind: .event, title: "Afternoon Sync", day: d, startDate: day(2026, 11, 16, 15), endDate: day(2026, 11, 16, 16), isAllDay: false, isRealAllDay: false, hasTime: true, calendarID: "c", calendarTitle: "Work")
+        let allDayTodayEvent = MobileAgendaItem(id: "e3", targetIdentifier: "e3", kind: .event, title: "All Day", day: d, startDate: d, endDate: d, isAllDay: true, isRealAllDay: true, hasTime: false, calendarID: "c", calendarTitle: "Work")
+        let overdueTimedRem = MobileAgendaItem(id: "r1", targetIdentifier: "r1", kind: .reminder, title: "Call Bob", day: d, startDate: day(2026, 11, 16, 10), endDate: day(2026, 11, 16, 10), isAllDay: false, isRealAllDay: false, hasTime: true, isCompleted: false, calendarID: "c", calendarTitle: "Todo")
+        assert(endedTodayEvent.isDimmed(at: now, calendar: cal))
+        assert(!upcomingTodayEvent.isDimmed(at: now, calendar: cal))
+        assert(!allDayTodayEvent.isDimmed(at: now, calendar: cal))
+        assert(!overdueTimedRem.isDimmed(at: now, calendar: cal) && overdueTimedRem.isPastDueReminder(at: now, calendar: cal))
+        assert(timedDoneRem.isDimmed(at: now, calendar: cal) && !timedDoneRem.isPastDueReminder(at: now, calendar: cal))
+
+        print("MobileCalendar checks passed: month grid, overnight/midnight/point splitting, agenda sorting, cell chip layout, meeting detection, widget links, year/month jump, agenda expansion and past/overdue styling")
     }
 }

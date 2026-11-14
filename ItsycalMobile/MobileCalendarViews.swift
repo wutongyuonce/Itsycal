@@ -242,18 +242,23 @@ struct MobileMonthView: View {
     /// All-day events as a tinted block, timed events as a colour bar and
     /// title, reminders with a circle, as in the desktop month widget.
     private func chip(_ item: MobileAgendaItem) -> some View {
+        let now = Date()
         let tint = Color(rgb: item.colorRGB)
         let block = item.kind == .event && item.isAllDay
+        let overdueRem = item.isPastDueReminder(at: now, calendar: calendar)
+        // Past days already dim the whole cell; on today, dim finished events and completed reminders.
+        let dimOnToday = item.isCompleted || (calendar.isDateInToday(item.day) && item.isDimmed(at: now, calendar: calendar))
         return HStack(spacing: 3) {
             if item.kind == .reminder {
                 Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(overdueRem ? Color.red : tint)
             } else if !block {
                 RoundedRectangle(cornerRadius: 1).fill(tint).frame(width: 2, height: 9)
             }
             Text(item.title)
                 .font(.system(size: 10))
+                .foregroundStyle(overdueRem ? Color.red : Color.primary)
                 .lineLimit(1)
         }
         .padding(.horizontal, block ? 4 : 0)
@@ -262,7 +267,7 @@ struct MobileMonthView: View {
         .background {
             if block { RoundedRectangle(cornerRadius: 3).fill(tint.opacity(0.25)) }
         }
-        .opacity(item.isCompleted ? 0.5 : 1)
+        .opacity(dimOnToday ? 0.5 : 1)
     }
 
     /// Up to three calendar colours for cells too short for chips.
@@ -296,6 +301,12 @@ struct MobileAgendaView: View {
     private let rowInsets = EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
 
     var body: some View {
+        TimelineView(.everyMinute) { context in
+            agendaList(now: context.date)
+        }
+    }
+
+    private func agendaList(now: Date) -> some View {
         let start = calendar.startOfDay(for: eventStore.selectedDate)
         let shownDays = eventStore.totalAgendaDays
         let entries = MobileCalendarCore.agendaEntries(
@@ -314,7 +325,7 @@ struct MobileAgendaView: View {
         let showOverdue = calendar.isDateInToday(eventStore.selectedDate) && !eventStore.overdueReminders.isEmpty
         let isEmpty = !showOverdue && entries.isEmpty
 
-        List {
+        return List {
             if !eventStore.calendarAuthorized {
                 Text("请在“设置 › 隐私与安全性 › 日历”中允许 Itsycal 访问日历。")
                     .font(.footnote)
@@ -324,7 +335,7 @@ struct MobileAgendaView: View {
             if showOverdue {
                 Section {
                     if overdueExpanded {
-                        ForEach(eventStore.overdueReminders) { row($0) }
+                        ForEach(eventStore.overdueReminders) { row($0, now: now) }
                     }
                 } header: {
                     Button {
@@ -355,7 +366,7 @@ struct MobileAgendaView: View {
                         .listRowSeparator(.hidden)
                 case .day(let day, let items):
                     Section {
-                        ForEach(items) { row($0) }
+                        ForEach(items) { row($0, now: now) }
                     } header: {
                         dayHeader(day).listRowInsets(rowInsets)
                     }
@@ -438,8 +449,10 @@ struct MobileAgendaView: View {
         .font(.caption.weight(.semibold))
     }
 
-    private func row(_ item: MobileAgendaItem) -> some View {
+    private func row(_ item: MobileAgendaItem, now: Date) -> some View {
         let tint = Color(rgb: item.colorRGB)
+        let dimmed = item.isDimmed(at: now, calendar: calendar)
+        let overdueRem = item.isPastDueReminder(at: now, calendar: calendar)
         return HStack(spacing: 8) {
             if item.kind == .reminder {
                 Button {
@@ -447,23 +460,25 @@ struct MobileAgendaView: View {
                 } label: {
                     Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 17))
-                        .foregroundStyle(tint)
+                        .foregroundStyle(tint.opacity(dimmed ? 0.5 : 1))
                 }
                 .buttonStyle(.borderless)
                 .disabled(!item.isEditable)
                 .accessibilityLabel(item.isCompleted ? "标记为未完成" : "标记为完成")
             } else {
-                RoundedRectangle(cornerRadius: 1.5).fill(tint).frame(width: 3, height: 28)
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(tint.opacity(dimmed ? 0.45 : 1))
+                    .frame(width: 3, height: 28)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                     .strikethrough(item.isCompleted)
-                    .foregroundStyle(item.isCompleted ? .secondary : .primary)
+                    .foregroundStyle(overdueRem ? Color.red : (dimmed ? Color.secondary : Color.primary))
                 Text(subtitle(item))
                     .font(.caption)
-                    .foregroundStyle(item.isOverdue ? Color.red : Color.secondary)
+                    .foregroundStyle(overdueRem ? Color.red.opacity(0.85) : (dimmed ? Color.secondary.opacity(0.65) : Color.secondary))
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
@@ -475,6 +490,7 @@ struct MobileAgendaView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+                .tint(dimmed ? .secondary : nil)
                 .accessibilityLabel("加入会议")
             }
         }

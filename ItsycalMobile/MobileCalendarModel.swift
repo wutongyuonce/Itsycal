@@ -66,6 +66,35 @@ public struct MobileAgendaItem: Identifiable, Equatable, Sendable {
         self.isEditable = isEditable
         self.isRecurring = isRecurring
     }
+
+    /// Matches desktop Itsycal (`AgendaViewController.m`):
+    /// - Completed reminders are dimmed.
+    /// - Events on past days (`day < startOfToday`), or timed events ending on
+    ///   today whose `endDate` has passed (`endDate <= now`), are dimmed.
+    public func isDimmed(at now: Date, calendar: Calendar) -> Bool {
+        if kind == .reminder {
+            return isCompleted
+        }
+        let todayStart = calendar.startOfDay(for: now)
+        if day < todayStart {
+            return true
+        }
+        guard !isAllDay, calendar.isDate(day, inSameDayAs: now) else {
+            return false
+        }
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart.addingTimeInterval(86_400)
+        return endDate < tomorrowStart && endDate <= now
+    }
+
+    /// Matches desktop Itsycal (`AgendaViewController.m`):
+    /// An incomplete reminder is overdue once its due time has passed (or, if it
+    /// has no time, once its day has passed); its title is shown in red.
+    public func isPastDueReminder(at now: Date, calendar: Calendar) -> Bool {
+        guard kind == .reminder, !isCompleted else { return false }
+        if isOverdue { return true }
+        let deadline = isAllDay ? calendar.startOfDay(for: now) : now
+        return startDate < deadline
+    }
 }
 
 extension MobileAgendaItem: DayItem {}
