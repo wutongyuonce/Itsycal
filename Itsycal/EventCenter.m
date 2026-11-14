@@ -40,10 +40,10 @@ static const NSTimeInterval kCompletedReminderLinger = 1;
 - (NSDate *)startDate { return _reminder ? _dueDate : _event.startDate; }
 - (NSDate *)endDate { return _reminder ? _dueDate : _event.endDate; }
 - (BOOL)isRealAllDay { return _reminder ? _isAllDay : _event.isAllDay; }
+- (BOOL)isEditable { return self.item.calendar.allowsContentModifications && !_isFutureOccurrence; }
 @end
 
 static NSURL *MeetingURLForEvent(EKEvent *event); // see below
-static NSDate *DueDateForReminder(EKReminder *reminder, BOOL *hasTime, NSCalendar **calendar); // see below
 static NSArray<NSDictionary *> *AlarmValuesOfReminder(EKReminder *reminder); // see below
 static NSComparisonResult CompareItemsOnDay(EventInfo *e1, EventInfo *e2); // see below
 
@@ -67,8 +67,12 @@ static NSComparisonResult CompareItemsOnDay(EventInfo *e1, EventInfo *e2); // se
 @end
 typedef EKEvent *(^EventMaker)(EKEventStore *store);
 typedef EKReminder *(^ReminderMaker)(EKEventStore *store);
+typedef void (^EventRestorer)(EKEventStore *store, EKEvent *target);
+typedef void (^ReminderRestorer)(EKEventStore *store, EKReminder *target);
 static EventMaker EventMakerForEvent(EKEvent *event); // see below
 static ReminderMaker ReminderMakerForReminder(EKReminder *reminder); // see below
+static EventRestorer EventRestorerForEvent(EKEvent *event); // see below
+static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // see below
 
 @implementation EventCenter {                      // Accessed on:
     EKEventStore         *_store;
@@ -315,6 +319,86 @@ static ReminderMaker ReminderMakerForReminder(EKReminder *reminder); // see belo
         [self->_store reset];
     });
     [self refetchAll];
+}
+
+- (BOOL)updateItem:(EKCalendarItem *)item
+              span:(EKSpan)span
+           changes:(void (^)(EKCalendarItem *target))changes
+       undoManager:(NSUndoManager *)undoManager
+             error:(NSError **)error {
+    if ([item isKindOfClass:[EKEvent class]]) {
+        EKEvent *event = (EKEvent *)item;
+        EventRestorer restore = EventRestorerForEvent(event);
+        if (changes) changes(event);
+        if (![_store saveEvent:event span:span commit:YES error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+        if (undoManager) {
+            NSString *eventID = event.eventIdentifier ?: event.calendarItemIdentifier ?: @"";
+            NSDate *savedStart = event.startDate;
+            NSArray *fingerprint = [self _undoFingerprintForEvent:event];
+            __weak NSUndoManager *weakUndo = undoManager;
+            [undoManager registerUndoWithTarget:self handler:^(EventCenter *ec) {
+                EKEvent *saved = nil;
+                if (savedStart) {
+                    NSPredicate *pred = [ec->_store predicateForEventsWithStartDate:[savedStart dateByAddingTimeInterval:-1]
+                                                                            endDate:[savedStart dateByAddingTimeInterval:86400]
+                                                                          calendars:nil];
+                    for (EKEvent *cand in [ec->_store eventsMatchingPredicate:pred]) {
+                        NSString *cid = cand.eventIdentifier ?: cand.calendarItemIdentifier ?: @"";
+                        if ([cid isEqualToString:eventID] && [cand.startDate isEqualToDate:savedStart]) {
+                            saved = cand;
+                            break;
+                        }
+                    }
+                }
+                if (!saved) saved = [ec eventWithIdentifier:eventID];
+                if (!saved || ![[ec _undoFingerprintForEvent:saved] isEqual:fingerprint]) {
+                    NSBeep();
+                    return;
+                }
+                NSError *undoErr = nil;
+                if (![ec updateItem:saved span:span changes:^(EKCalendarItem *target) {
+                    restore(ec->_store, (EKEvent *)target);
+                } undoManager:weakUndo error:&undoErr]) {
+                    if (undoErr) [[NSAlert alertWithError:undoErr] runModal];
+                }
+            }];
+        }
+        [self refetchAll];
+        return YES;
+    }
+    if ([item isKindOfClass:[EKReminder class]]) {
+        EKReminder *reminder = (EKReminder *)item;
+        ReminderRestorer restore = ReminderRestorerForReminder(reminder);
+        if (changes) changes(reminder);
+        if (![_store saveReminder:reminder commit:YES error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+        if (undoManager) {
+            NSString *remID = reminder.calendarItemIdentifier ?: @"";
+            NSArray *fingerprint = [self _undoFingerprintForReminder:reminder];
+            __weak NSUndoManager *weakUndo = undoManager;
+            [undoManager registerUndoWithTarget:self handler:^(EventCenter *ec) {
+                EKReminder *saved = [ec reminderWithIdentifier:remID];
+                if (!saved || ![[ec _undoFingerprintForReminder:saved] isEqual:fingerprint]) {
+                    NSBeep();
+                    return;
+                }
+                NSError *undoErr = nil;
+                if (![ec updateItem:saved span:EKSpanThisEvent changes:^(EKCalendarItem *target) {
+                    restore(ec->_store, (EKReminder *)target);
+                } undoManager:weakUndo error:&undoErr]) {
+                    if (undoErr) [[NSAlert alertWithError:undoErr] runModal];
+                }
+            }];
+        }
+        [self refetchAll];
+        return YES;
+    }
+    return NO;
 }
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error {
@@ -1351,7 +1435,7 @@ static NSComparisonResult CompareItemsOnDay(EventInfo *e1, EventInfo *e2)
 // start of that day in the local time zone, like an all-day event.
 // If calendar isn't NULL, set it to the calendar the due date is in,
 // for expanding a repeating reminder's later occurrences.
-static NSDate *DueDateForReminder(EKReminder *reminder, BOOL *hasTime, NSCalendar **calendar)
+NSDate *DueDateForReminder(EKReminder *reminder, BOOL *hasTime, NSCalendar **calendar)
 {
     *hasTime = NO;
     if (reminder.dueDateComponents == nil) return nil;
@@ -1456,7 +1540,7 @@ static NSArray<NSDictionary *> *AlarmValuesOfReminder(EKReminder *reminder)
 // fields Itsycal's new-event popover sets (see -[EventViewController
 // saveEvent:]). The block captures plain values, not EventKit
 // objects, because -[EKEventStore reset] discards unsaved objects.
-static EventMaker EventMakerForEvent(EKEvent *event)
+static EventRestorer EventRestorerForEvent(EKEvent *event)
 {
     NSString *title      = event.title;
     NSString *location   = event.location;
@@ -1471,13 +1555,19 @@ static EventMaker EventMakerForEvent(EKEvent *event)
     BOOL hasRule = rule != nil;
     EKRecurrenceFrequency frequency = rule.frequency;
     NSInteger interval   = rule.interval;
+    NSArray<EKRecurrenceDayOfWeek *> *daysOfTheWeek = [rule.daysOfTheWeek copy];
+    NSArray<NSNumber *> *daysOfTheMonth = [rule.daysOfTheMonth copy];
+    NSArray<NSNumber *> *monthsOfTheYear = [rule.monthsOfTheYear copy];
+    NSArray<NSNumber *> *weeksOfTheYear = [rule.weeksOfTheYear copy];
+    NSArray<NSNumber *> *daysOfTheYear = [rule.daysOfTheYear copy];
+    NSArray<NSNumber *> *setPositions = [rule.setPositions copy];
     NSDate *ruleEndDate  = rule.recurrenceEnd.endDate;
+    NSUInteger ruleCount = rule.recurrenceEnd.occurrenceCount;
     NSMutableArray<NSNumber *> *alarmOffsets = [NSMutableArray new];
     for (EKAlarm *alarm in event.alarms) {
         [alarmOffsets addObject:@(alarm.relativeOffset)];
     }
-    return ^EKEvent *(EKEventStore *store) {
-        EKEvent *copy  = [EKEvent eventWithEventStore:store];
+    return ^(EKEventStore *store, EKEvent *copy) {
         copy.title     = title;
         copy.location  = location;
         copy.URL       = URL;
@@ -1487,23 +1577,36 @@ static EventMaker EventMakerForEvent(EKEvent *event)
         copy.calendar  = [store calendarWithIdentifier:calendarID];
         copy.notes     = notes;
         // timeZone MUST be nil for an all-day event, and set after allDay.
-        copy.timeZone  = timeZone;
+        copy.timeZone  = allDay ? nil : timeZone;
         if (hasRule) {
-            EKRecurrenceEnd *end = ruleEndDate ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate] : nil;
-            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:end]];
+            EKRecurrenceEnd *end = ruleEndDate
+                ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate]
+                : (ruleCount > 0 ? [EKRecurrenceEnd recurrenceEndWithOccurrenceCount:ruleCount] : nil);
+            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval daysOfTheWeek:daysOfTheWeek daysOfTheMonth:daysOfTheMonth monthsOfTheYear:monthsOfTheYear weeksOfTheYear:weeksOfTheYear daysOfTheYear:daysOfTheYear setPositions:setPositions end:end]];
+        } else {
+            copy.recurrenceRules = nil;
         }
         // Replace any default alarms with the event's own.
-        for (EKAlarm *alarm in copy.alarms) {
+        for (EKAlarm *alarm in [copy.alarms copy]) {
             [copy removeAlarm:alarm];
         }
         for (NSNumber *offset in alarmOffsets) {
             [copy addAlarm:[EKAlarm alarmWithRelativeOffset:offset.doubleValue]];
         }
+    };
+}
+
+static EventMaker EventMakerForEvent(EKEvent *event)
+{
+    EventRestorer restore = EventRestorerForEvent(event);
+    return ^EKEvent *(EKEventStore *store) {
+        EKEvent *copy = [EKEvent eventWithEventStore:store];
+        restore(store, copy);
         return copy;
     };
 }
 
-static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
+static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder)
 {
     NSString *title = reminder.title;
     NSString *calendarID = reminder.calendar.calendarIdentifier;
@@ -1516,10 +1619,16 @@ static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
     BOOL hasRule = rule != nil;
     EKRecurrenceFrequency frequency = rule.frequency;
     NSInteger interval = rule.interval;
+    NSArray<EKRecurrenceDayOfWeek *> *daysOfTheWeek = [rule.daysOfTheWeek copy];
+    NSArray<NSNumber *> *daysOfTheMonth = [rule.daysOfTheMonth copy];
+    NSArray<NSNumber *> *monthsOfTheYear = [rule.monthsOfTheYear copy];
+    NSArray<NSNumber *> *weeksOfTheYear = [rule.weeksOfTheYear copy];
+    NSArray<NSNumber *> *daysOfTheYear = [rule.daysOfTheYear copy];
+    NSArray<NSNumber *> *setPositions = [rule.setPositions copy];
     NSDate *ruleEndDate = rule.recurrenceEnd.endDate;
+    NSUInteger ruleCount = rule.recurrenceEnd.occurrenceCount;
     NSArray<NSDictionary *> *alarmValues = AlarmValuesOfReminder(reminder);
-    return ^EKReminder *(EKEventStore *store) {
-        EKReminder *copy = [EKReminder reminderWithEventStore:store];
+    return ^(EKEventStore *store, EKReminder *copy) {
         copy.title = title;
         copy.calendar = [store calendarWithIdentifier:calendarID];
         copy.notes = notes;
@@ -1528,20 +1637,35 @@ static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
         copy.dueDateComponents = [dueDateComponents copy];
         copy.startDateComponents = [startDateComponents copy];
         if (hasRule) {
-            EKRecurrenceEnd *end = ruleEndDate ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate] : nil;
-            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:end]];
+            EKRecurrenceEnd *end = ruleEndDate
+                ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate]
+                : (ruleCount > 0 ? [EKRecurrenceEnd recurrenceEndWithOccurrenceCount:ruleCount] : nil);
+            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval daysOfTheWeek:daysOfTheWeek daysOfTheMonth:daysOfTheMonth monthsOfTheYear:monthsOfTheYear weeksOfTheYear:weeksOfTheYear daysOfTheYear:daysOfTheYear setPositions:setPositions end:end]];
+        } else {
+            copy.recurrenceRules = nil;
         }
-        for (EKAlarm *alarm in copy.alarms) {
-            [copy removeAlarm:alarm];
+        if (alarmValues != nil) {
+            for (EKAlarm *alarm in [copy.alarms copy]) {
+                [copy removeAlarm:alarm];
+            }
+            for (NSDictionary *value in alarmValues) {
+                EKAlarm *alarm = value[@"absoluteDate"]
+                    ? [EKAlarm alarmWithAbsoluteDate:value[@"absoluteDate"]]
+                    : [EKAlarm alarmWithRelativeOffset:[value[@"relativeOffset"] doubleValue]];
+                alarm.emailAddress = value[@"emailAddress"];
+                alarm.soundName = value[@"soundName"];
+                [copy addAlarm:alarm];
+            }
         }
-        for (NSDictionary *value in alarmValues) {
-            EKAlarm *alarm = value[@"absoluteDate"]
-                ? [EKAlarm alarmWithAbsoluteDate:value[@"absoluteDate"]]
-                : [EKAlarm alarmWithRelativeOffset:[value[@"relativeOffset"] doubleValue]];
-            alarm.emailAddress = value[@"emailAddress"];
-            alarm.soundName = value[@"soundName"];
-            [copy addAlarm:alarm];
-        }
+    };
+}
+
+static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
+{
+    ReminderRestorer restore = ReminderRestorerForReminder(reminder);
+    return ^EKReminder *(EKEventStore *store) {
+        EKReminder *copy = [EKReminder reminderWithEventStore:store];
+        restore(store, copy);
         return copy;
     };
 }

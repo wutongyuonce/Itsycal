@@ -204,6 +204,7 @@ static NSImage *CalendarDotImage(NSColor *color)
     NSStackView *_body;   // scrolls below the header
     NSArray<AgendaPopoverSection *> *_sections;
     NSTextField *_title;
+    NSButton *_btnEdit;
     NSButton *_btnDelete;
     NSTextField *_duration;
     NSTextField *_recurrence;
@@ -249,6 +250,18 @@ static NSImage *CalendarDotImage(NSColor *color)
         _note = [AgendaPopoverTextView new];
         _URL = [AgendaPopoverTextView new];
         
+        _btnEdit = [NSButton new];
+        _btnEdit.image = [NSImage imageWithSystemSymbolName:@"pencil" accessibilityDescription:NSLocalizedString(@"Edit", @"")];
+        _btnEdit.imagePosition = NSImageOnly;
+        _btnEdit.title = @"";
+        _btnEdit.focusRingType = NSFocusRingTypeNone;
+        _btnEdit.bordered = NO;
+        _btnEdit.contentTintColor = Theme.buttonTintColor;
+        _btnEdit.target = self;
+        _btnEdit.action = @selector(editClicked:);
+        _btnEdit.keyEquivalent = @"e";
+        _btnEdit.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
         _btnDelete = [NSButton new];
         _btnDelete.image = [NSImage imageWithSystemSymbolName:@"delete.backward" accessibilityDescription:NSLocalizedString(@"Delete This Event", @"")];
         _btnDelete.imagePosition = NSImageOnly;
@@ -264,9 +277,10 @@ static NSImage *CalendarDotImage(NSColor *color)
         
         NSView *titleHolder = [NSView new];
         [titleHolder addSubview:_title];
+        [titleHolder addSubview:_btnEdit];
         [titleHolder addSubview:_btnDelete];
-        MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:titleHolder metrics:nil views:NSDictionaryOfVariableBindings(_title, _btnDelete)];
-        [vfl :@"H:|[_title]-(>=10)-[_btnDelete]|" :NSLayoutFormatAlignAllCenterY];
+        MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:titleHolder metrics:nil views:NSDictionaryOfVariableBindings(_title, _btnEdit, _btnDelete)];
+        [vfl :@"H:|[_title]-(>=10)-[_btnEdit]-6-[_btnDelete]|" :NSLayoutFormatAlignAllCenterY];
         [vfl :@"V:|[_title]|"];
 
         _attendees = [NSStackView new];
@@ -393,6 +407,11 @@ static NSImage *CalendarDotImage(NSColor *color)
     [self.view.window makeFirstResponder:_btnDelete];
 }
 
+- (void)editClicked:(NSButton *)sender
+{
+    if (self.editHandler) self.editHandler();
+}
+
 - (void)deleteClicked:(NSButton *)sender
 {
     if (self.deleteHandler) self.deleteHandler();
@@ -447,6 +466,7 @@ static NSImage *CalendarDotImage(NSColor *color)
     _calendarName.font = font;
     // The size of the text, and the meeting icon's weight.
     NSImageSymbolConfiguration *iconSize = [NSImageSymbolConfiguration configurationWithPointSize:fontSize weight:NSFontWeightMedium];
+    _btnEdit.symbolConfiguration = iconSize;
     _btnDelete.symbolConfiguration = iconSize;
     _meetingIcon.symbolConfiguration = iconSize;
 }
@@ -493,8 +513,10 @@ static NSImage *CalendarDotImage(NSColor *color)
     // scroller. See -makeRoomForScroller.
     [self setBodyWidth:kTextWidth];
 
-    // Hide delete button IF event doesn't allow modification.
-    _btnDelete.hidden = !info.event.calendar.allowsContentModifications;
+    // Hide edit and delete buttons if the item isn't editable.
+    BOOL editable = info.isEditable;
+    _btnEdit.hidden = !editable;
+    _btnDelete.hidden = !editable;
 
     duration = DateRangeString(startDate, endDate, isAllDay);
     // If the event is not All-day and the start and end dates are

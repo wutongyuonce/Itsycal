@@ -374,6 +374,15 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         return;
     }
 
+    [self showEventPopoverForEditingItem:nil];
+}
+
+- (void)showEventPopoverForEditingItem:(EventInfo *)editingItem
+{
+    [_aiPopover close];
+    if (_newEventPopover.shown) {
+        [_newEventPopover close];
+    }
     if (!_newEventPopover) {
         _newEventPopover = [MoPopover new];
         _newEventPopover.animates = NO;
@@ -387,7 +396,8 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     eventVC.enclosingPopover = _newEventPopover;
     eventVC.cal = _nsCal;
     eventVC.title = @"";
-    eventVC.calSelectedDate = MakeNSDateWithDate(_moCal.selectedDate, _nsCal);
+    eventVC.editingItem = editingItem;
+    eventVC.calSelectedDate = editingItem.startDate ?: MakeNSDateWithDate(_moCal.selectedDate, _nsCal);
     eventVC.eventUndoManager = self.itsycalWindow.undoManager;
     
     _newEventPopover.contentViewController = eventVC;
@@ -1190,6 +1200,12 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     }
 }
 
+- (void)agendaWantsToEditItem:(EventInfo *)info
+{
+    [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+    [self showEventPopoverForEditingItem:info];
+}
+
 - (void)agendaWantsToDeleteEvent:(EKEvent *)event
 {
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
@@ -1223,10 +1239,40 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         return;
     }
     
-    // Delete this event (or future events).
+    // Delete this event (or future events) and register undo with the window's undo manager.
     NSError *error = NULL;
     EKSpan span = (eventRepeats && response == NSAlertSecondButtonReturn) ? EKSpanFutureEvents : EKSpanThisEvent;
-    BOOL result = [_ec removeEvent:event span:span error:&error];
+    BOOL result = [_ec applyBatchChangesWithAddedEvents:@[]
+                                         addedReminders:@[]
+                                          deletedEvents:@[event]
+                                      deletedEventSpans:@[@(span)]
+                                       deletedReminders:@[]
+                                            undoManager:self.itsycalWindow.undoManager
+                                                  error:&error];
+    if (result == NO && error != nil) {
+        [[NSAlert alertWithError:error] runModal];
+    }
+}
+
+- (void)agendaWantsToDeleteReminder:(EKReminder *)reminder
+{
+    [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = NSLocalizedString(@"Are you sure you want to delete this reminder?", @"");
+    alert.informativeText = reminder.title ?: @"";
+    [alert addButtonWithTitle:NSLocalizedString(@"Delete Reminder", @"")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"")];
+    if ([alert runModal] != NSAlertFirstButtonReturn) return;
+
+    NSError *error = nil;
+    BOOL result = [_ec applyBatchChangesWithAddedEvents:@[]
+                                         addedReminders:@[]
+                                          deletedEvents:@[]
+                                      deletedEventSpans:@[]
+                                       deletedReminders:@[reminder]
+                                            undoManager:self.itsycalWindow.undoManager
+                                                  error:&error];
     if (result == NO && error != nil) {
         [[NSAlert alertWithError:error] runModal];
     }
@@ -1876,18 +1922,13 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         NSString *remID = rem.calendarItemIdentifier ?: @"";
         if (remID.length && [seenEventIDs containsObject:remID]) continue;
         if (remID.length) [seenEventIDs addObject:remID];
-        NSDateComponents *comp = [rem.dueDateComponents copy];
-        BOOL hasTime = comp != nil && comp.hour != NSDateComponentUndefined;
-        NSCalendar *dueCal = [comp.calendar ?: [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian] copy];
-        dueCal.timeZone = (hasTime && comp.timeZone) ? comp.timeZone : [NSTimeZone localTimeZone];
-        comp.calendar = nil;
-        comp.timeZone = nil;
-        NSDate *due = comp ? [dueCal dateFromComponents:comp] : NSDate.date;
+        BOOL hasTime = NO;
+        NSDate *due = DueDateForReminder(rem, &hasTime, NULL) ?: NSDate.date;
         [items addObject:[[AIExistingItemObjC alloc]
             initWithIdentifier:remID
                          title:rem.title ?: @""
-                     startDate:due ?: NSDate.date
-                       endDate:due ?: NSDate.date
+                     startDate:due
+                       endDate:due
                       isAllDay:!hasTime
                     calendarID:rem.calendar.calendarIdentifier ?: @""
                  calendarTitle:rem.calendar.title ?: @""

@@ -313,10 +313,19 @@ static const CGFloat kReminderFillGap = 1;
     if (!_popover) {
         AgendaPopoverVC *popoverVC = [AgendaPopoverVC new];
         __weak AgendaViewController *weakSelf = self;
+        popoverVC.editHandler = ^{
+            AgendaViewController *strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            EventInfo *target = strongSelf->_popoverEventInfo;
+            [strongSelf->_popover close];
+            [strongSelf editEventInfo:target];
+        };
         popoverVC.deleteHandler = ^{
             AgendaViewController *strongSelf = weakSelf;
             if (strongSelf == nil) return;
-            [strongSelf deleteEventInfo:strongSelf->_popoverEventInfo];
+            EventInfo *target = strongSelf->_popoverEventInfo;
+            [strongSelf->_popover close];
+            [strongSelf deleteEventInfo:target];
         };
         _popover = [MoPopover new];
         _popover.contentViewController = popoverVC;
@@ -528,7 +537,20 @@ static const CGFloat kReminderFillGap = 1;
 }
 
 #pragma mark -
-#pragma mark Delete event
+#pragma mark Edit and delete item
+
+- (void)editEvent:(NSMenuItem *)sender
+{
+    [self editEventInfo:sender.representedObject];
+}
+
+- (void)editEventInfo:(EventInfo *)info
+{
+    if (!info.isEditable || ![info.item refresh]) return;
+    if (self.delegate && [self.delegate respondsToSelector:@selector(agendaWantsToEditItem:)]) {
+        [self.delegate agendaWantsToEditItem:info];
+    }
+}
 
 - (void)deleteEvent:(NSMenuItem *)sender
 {
@@ -539,12 +561,11 @@ static const CGFloat kReminderFillGap = 1;
 {
     // Act on a captured EventInfo, not a row index. self.events can be
     // replaced while the menu or popover is open.
-    if (info.event == nil || !info.event.calendar.allowsContentModifications) return;
-    // The event may have changed or been deleted elsewhere since the menu
-    // or popover opened. Refresh it; NO means it no longer exists.
-    if (![info.event refresh]) return;
-    if (self.delegate && [self.delegate respondsToSelector:@selector(agendaWantsToDeleteEvent:)]) {
+    if (!info.isEditable || ![info.item refresh]) return;
+    if (info.event && [self.delegate respondsToSelector:@selector(agendaWantsToDeleteEvent:)]) {
         [self.delegate agendaWantsToDeleteEvent:info.event];
+    } else if (info.reminder && [self.delegate respondsToSelector:@selector(agendaWantsToDeleteReminder:)]) {
+        [self.delegate agendaWantsToDeleteReminder:info.reminder];
     }
 }
 
