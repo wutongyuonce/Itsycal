@@ -7,6 +7,8 @@ swiftc ItsycalWidgets/WeekModel.swift ItsycalWidgets/WeekPreview.swift Tests/Wee
 "$check_dir/model"
 swiftc Itsycal/AIAssistant.swift Tests/AIAssistantCheck.swift -o "$check_dir/ai"
 "$check_dir/ai"
+swiftc Itsycal/AIAssistant.swift ItsycalMobile/MobileCalendarModel.swift Tests/MobileCalendarCheck.swift -o "$check_dir/mobile"
+"$check_dir/mobile"
 clang -fobjc-arc -fmodules -I Tests/Stubs -I Itsycal -I Itsycal/MoCode \
   Itsycal/EventCenter.m Itsycal/ReminderRecurrence.m Itsycal/WeekSnapshot.m Itsycal/Itsycal.m Itsycal/MoCode/MoDate.m Tests/EventCenterCheck.m \
   -framework AppKit -framework EventKit -o "$check_dir/events"

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* ItsycalWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* ItsycalWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B10000000000000000000010 /* AIAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* AIAssistant.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,6 +51,8 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000002 /* ItsycalWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ItsycalWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000002 /* ItsycalMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ItsycalMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000011 /* AIAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Itsycal/AIAssistant.swift; sourceTree = SOURCE_ROOT; };
 		9242A55C1A82A136005AA4B3 /* Itsycal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Itsycal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		92CF00001A82A136005AA4B3 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -62,6 +65,13 @@
 				ItsycalWidgets.entitlements,
 			);
 			target = A10000000000000000000004 /* ItsycalWidgets */;
+		};
+		B10000000000000000000006 /* Exceptions for "ItsycalMobile" folder in "ItsycalMobile" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000000000000000000004 /* ItsycalMobile */;
 		};
 		92488FE73072079E00E9229D /* Exceptions for "Itsycal" folder in "Itsycal" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -103,6 +113,14 @@
 			path = ItsycalWidgets;
 			sourceTree = "<group>";
 		};
+		B10000000000000000000007 /* ItsycalMobile */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B10000000000000000000006 /* Exceptions for "ItsycalMobile" folder in "ItsycalMobile" target */,
+			);
+			path = ItsycalMobile;
+			sourceTree = "<group>";
+		};
 		92488FB93072079D00E9229D /* Itsycal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -123,6 +141,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9242A5591A82A136005AA4B3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
@@ -136,6 +161,7 @@
 			children = (
 				92488FB93072079D00E9229D /* Itsycal */,
 				A10000000000000000000007 /* ItsycalWidgets */,
+				B10000000000000000000007 /* ItsycalMobile */,
 				9242A55D1A82A136005AA4B3 /* Products */,
 				92CF00001A82A136005AA4B3 /* Local.xcconfig */,
 			);
@@ -146,6 +172,7 @@
 			children = (
 				9242A55C1A82A136005AA4B3 /* Itsycal.app */,
 				A10000000000000000000002 /* ItsycalWidgets.appex */,
+				B10000000000000000000002 /* ItsycalMobile.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,6 +180,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B10000000000000000000004 /* ItsycalMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000009 /* Build configuration list for PBXNativeTarget "ItsycalMobile" */;
+			buildPhases = (
+				B1000000000000000000000A /* Sources */,
+				B10000000000000000000008 /* Frameworks */,
+				B1000000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000000000000000000007 /* ItsycalMobile */,
+			);
+			name = ItsycalMobile;
+			productName = ItsycalMobile;
+			productReference = B10000000000000000000002 /* ItsycalMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
 		A10000000000000000000004 /* ItsycalWidgets */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000009 /* Build configuration list for PBXNativeTarget "ItsycalWidgets" */;
@@ -253,12 +300,20 @@
 			targets = (
 				9242A55B1A82A136005AA4B3 /* Itsycal */,
 				A10000000000000000000004 /* ItsycalWidgets */,
+				B10000000000000000000004 /* ItsycalMobile */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A1000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1000000000000000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -278,6 +333,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1000000000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000010 /* AIAssistant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -518,9 +581,59 @@
 			};
 			name = Release;
 		};
+		B1000000000000000000000D /* Debug configuration for PBXNativeTarget "ItsycalMobile" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 92CF00001A82A136005AA4B3 /* Local.xcconfig */;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ItsycalMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ITSYCAL_BUNDLE_ID).mobile";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B1000000000000000000000E /* Release configuration for PBXNativeTarget "ItsycalMobile" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 92CF00001A82A136005AA4B3 /* Local.xcconfig */;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ItsycalMobile/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ITSYCAL_BUNDLE_ID).mobile";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B10000000000000000000009 /* Build configuration list for PBXNativeTarget "ItsycalMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1000000000000000000000D /* Debug configuration for PBXNativeTarget "ItsycalMobile" */,
+				B1000000000000000000000E /* Release configuration for PBXNativeTarget "ItsycalMobile" */,
+			);
+			defaultConfigurationName = Release;
+		};
 		A10000000000000000000009 /* Build configuration list for PBXNativeTarget "ItsycalWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

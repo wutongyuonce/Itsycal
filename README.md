@@ -22,9 +22,14 @@
 - 周视图和月视图的星期排列都**跟随 Itsycal 设置中的“一周从周几开始”**。
 - 支持全天事件、跨日事件、重复事件、未完成提醒事项和本地时区/夏令时，跟随系统浅色/深色外观。具体行为见[桌面小组件规格](docs/WEEK_WIDGET_SPEC.md)。
 
+### 3. iOS / iPadOS 移动端 (`ItsycalMobile`)
+- 在同一 Xcode 工程中提供原生 iOS / iPadOS Target（`ItsycalMobile`），**零拷贝直接共享 `Itsycal/AIAssistant.swift`**（多协议客户端与 `JavaScriptCore` CodeMode 沙箱）。
+- **自适应双端界面**：iPhone 延续紧凑月历网格 + 议程与提醒事项混排上下分栏；iPad 自动切换为左侧月历 + 日历快速筛选、右侧宽屏议程的双栏布局，支持外接键盘快捷键（`⌘N` 新建、`⌘K` AI 助手、`⌘T` 回到今天）。
+- 具体架构与规格见 [iOS / iPadOS 端规格与设计契约](docs/IOS_APP_SPEC.md)。
+
 ## 系统要求
 
-当前工程要求 **macOS 27 / Xcode 27**。
+当前工程要求 **macOS 27 / iOS 26+ / Xcode 27**。
 
 ## 构建与安装
 
@@ -66,5 +71,6 @@ bash Tests/check-week.sh
 更多细节：
 
 - [AI 自然语言日程助手规格与设计契约](docs/AI_ASSISTANT_SPEC.md)
+- [iOS / iPadOS 端规格与设计契约](docs/IOS_APP_SPEC.md)
 - [桌面小组件行为与架构说明](docs/WEEK_WIDGET_SPEC.md)
 - [安装、刷新排查与真机验收](docs/WEEK_WIDGET_SETUP.md)
