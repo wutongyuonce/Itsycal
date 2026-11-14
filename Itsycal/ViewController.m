@@ -297,7 +297,11 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         _aiPopover.delegate = self;
         _aiPopover.contentViewController = [AIAssistantBridge makePopoverViewControllerWithDelegate:self];
     }
-    [_aiPopover showRelativeToRect:_btnAI.bounds ofView:_btnAI preferredEdge:NSRectEdgeMinX];
+    // Anchor at the left edge of the main calendar window aligned vertically with _btnAI
+    // so the popover opens completely outside the left side of the Itsycal window without covering the calendar or _btnAI.
+    NSRect btnRectInSelf = [self.view convertRect:_btnAI.bounds fromView:_btnAI];
+    NSRect leftEdgeAnchor = NSMakeRect(0, NSMinY(btnRectInSelf), 2, NSHeight(btnRectInSelf));
+    [_aiPopover showRelativeToRect:leftEdgeAnchor ofView:self.view preferredEdge:NSRectEdgeMinX];
 }
 
 - (void)addCalendarEvent:(id)sender
@@ -1749,25 +1753,35 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     for (NSDate *day in _filteredEventsForDate) {
         for (EventInfo *info in _filteredEventsForDate[day]) {
             if (info.event) {
-                NSString *eid = [NSString stringWithFormat:@"%@-%f", info.event.eventIdentifier ?: info.event.title, info.event.startDate.timeIntervalSince1970];
+                NSString *rawID = info.event.eventIdentifier ?: info.event.calendarItemIdentifier ?: @"";
+                NSString *eid = [NSString stringWithFormat:@"%@-%f", rawID.length ? rawID : info.event.title, info.event.startDate.timeIntervalSince1970];
                 if ([seenEventIDs containsObject:eid]) continue;
                 [seenEventIDs addObject:eid];
                 [items addObject:[[AIExistingItemObjC alloc]
-                    initWithTitle:info.event.title ?: @""
-                        startDate:info.event.startDate ?: day
-                          endDate:info.event.endDate ?: day
-                         isAllDay:info.event.isAllDay
-                    calendarTitle:info.event.calendar.title ?: @""
-                       isReminder:NO]];
+                    initWithIdentifier:rawID
+                                 title:info.event.title ?: @""
+                             startDate:info.event.startDate ?: day
+                               endDate:info.event.endDate ?: day
+                              isAllDay:info.event.isAllDay
+                            calendarID:info.event.calendar.calendarIdentifier ?: @""
+                         calendarTitle:info.event.calendar.title ?: @""
+                                 color:info.event.calendar.color ?: NSColor.systemBlueColor
+                            isReminder:NO]];
             }
             else if (info.reminder && !info.isFutureOccurrence) {
+                NSString *remID = info.reminder.calendarItemIdentifier ?: @"";
+                if (remID.length && [seenEventIDs containsObject:remID]) continue;
+                if (remID.length) [seenEventIDs addObject:remID];
                 [items addObject:[[AIExistingItemObjC alloc]
-                    initWithTitle:info.reminder.title ?: @""
-                        startDate:info.dueDate ?: day
-                          endDate:info.dueDate ?: day
-                         isAllDay:info.isAllDay
-                    calendarTitle:info.reminder.calendar.title ?: @""
-                       isReminder:YES]];
+                    initWithIdentifier:remID
+                                 title:info.reminder.title ?: @""
+                             startDate:info.dueDate ?: day
+                               endDate:info.dueDate ?: day
+                              isAllDay:info.isAllDay
+                            calendarID:info.reminder.calendar.calendarIdentifier ?: @""
+                         calendarTitle:info.reminder.calendar.title ?: @""
+                                 color:info.reminder.calendar.color ?: NSColor.systemBlueColor
+                            isReminder:YES]];
             }
         }
     }
@@ -1834,9 +1848,33 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
 
     NSMutableArray<EKEvent *> *eventsToSave = [NSMutableArray new];
     NSMutableArray<EKReminder *> *remindersToSave = [NSMutableArray new];
+    NSMutableArray<EKEvent *> *eventsToDelete = [NSMutableArray new];
+    NSMutableArray<NSNumber *> *eventDeleteSpans = [NSMutableArray new];
+    NSMutableArray<EKReminder *> *remindersToDelete = [NSMutableArray new];
     NSMutableSet<NSString *> *usedCalendarIDs = [NSMutableSet new];
 
     for (AICommitItemObjC *item in items) {
+        if (item.isDelete) {
+            if (!item.isReminder) {
+                EKEvent *targetEvent = [self _resolveEventToDelete:item];
+                if (!targetEvent) {
+                    completion(NO, [NSString stringWithFormat:@"未找到要删除的日程「%@」，可能已被移除。", item.title]);
+                    return;
+                }
+                [eventsToDelete addObject:targetEvent];
+                EKSpan span = (item.deleteFutureOccurrences && targetEvent.hasRecurrenceRules) ? EKSpanFutureEvents : EKSpanThisEvent;
+                [eventDeleteSpans addObject:@(span)];
+            } else {
+                EKReminder *targetReminder = [self _resolveReminderToDelete:item];
+                if (!targetReminder) {
+                    completion(NO, [NSString stringWithFormat:@"未找到要删除的提醒事项「%@」，可能已被移除。", item.title]);
+                    return;
+                }
+                [remindersToDelete addObject:targetReminder];
+            }
+            continue;
+        }
+
         EKRecurrenceRule *rule = [self _recurrenceRuleForFrequency:item.repeatFrequency endDate:item.repeatEndDate];
         if (!item.isReminder) {
             EKCalendar *targetCal = eventCalendars[item.calendarID] ?: fallbackEventCal;
@@ -1847,6 +1885,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
             EKEvent *ev = [_ec newEvent];
             ev.title = item.title;
             ev.location = item.location;
+            if (item.urlString.length > 0) ev.URL = [NSURL URLWithString:item.urlString];
             ev.notes = item.notes;
             ev.allDay = item.isAllDay;
             ev.startDate = item.startDate;
@@ -1869,6 +1908,7 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
             }
             EKReminder *rem = [_ec newReminder];
             rem.title = item.title;
+            if (item.urlString.length > 0) rem.URL = [NSURL URLWithString:item.urlString];
             rem.notes = item.notes;
             rem.calendar = targetList;
             rem.priority = item.priority;
@@ -1895,8 +1935,14 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
     }
 
     NSError *error = nil;
-    if (![_ec saveBatchEvents:eventsToSave reminders:remindersToSave undoManager:self.itsycalWindow.undoManager error:&error]) {
-        completion(NO, error.localizedDescription ?: @"保存失败");
+    if (![_ec applyBatchChangesWithAddedEvents:eventsToSave
+                                addedReminders:remindersToSave
+                                 deletedEvents:eventsToDelete
+                             deletedEventSpans:eventDeleteSpans
+                              deletedReminders:remindersToDelete
+                                   undoManager:self.itsycalWindow.undoManager
+                                         error:&error]) {
+        completion(NO, error.localizedDescription ?: @"执行失败");
         return;
     }
 
@@ -1909,6 +1955,44 @@ static NSArray<NSString *> *ObservedDefaultsKeys(void)
         [self updateAgenda];
     }
     completion(YES, nil);
+}
+
+- (EKEvent *)_resolveEventToDelete:(AICommitItemObjC *)item
+{
+    if (item.targetIdentifier.length > 0) {
+        EKEvent *byID = [_ec eventWithIdentifier:item.targetIdentifier];
+        if (byID) return byID;
+    }
+    for (NSDate *day in _filteredEventsForDate) {
+        for (EventInfo *info in _filteredEventsForDate[day]) {
+            if (!info.event) continue;
+            if (item.targetIdentifier.length > 0 && [info.event.eventIdentifier isEqualToString:item.targetIdentifier]) {
+                return info.event;
+            }
+            if ([info.event.title isEqualToString:item.title] &&
+                [_nsCal isDate:info.event.startDate inSameDayAsDate:item.startDate]) {
+                return info.event;
+            }
+        }
+    }
+    return nil;
+}
+
+- (EKReminder *)_resolveReminderToDelete:(AICommitItemObjC *)item
+{
+    if (item.targetIdentifier.length > 0) {
+        EKReminder *byID = [_ec reminderWithIdentifier:item.targetIdentifier];
+        if (byID) return byID;
+    }
+    for (NSDate *day in _filteredEventsForDate) {
+        for (EventInfo *info in _filteredEventsForDate[day]) {
+            if (!info.reminder) continue;
+            if ([info.reminder.title isEqualToString:item.title]) {
+                return info.reminder;
+            }
+        }
+    }
+    return nil;
 }
 
 - (EKRecurrenceRule *)_recurrenceRuleForFrequency:(NSString *)freq endDate:(NSDate *)endDate

@@ -47,7 +47,18 @@
 
 // Atomically save a batch of new events and reminders in one store
 // commit, and register a single combined undo/redo action with undoManager.
-- (BOOL)saveBatchEvents:(NSArray<EKEvent *> *)events reminders:(NSArray<EKReminder *> *)reminders undoManager:(NSUndoManager *)undoManager error:(NSError **)error;
+// Atomically save new events/reminders and delete specified existing events/reminders
+// in one store commit, registering a single combined undo/redo action with undoManager.
+- (BOOL)applyBatchChangesWithAddedEvents:(NSArray<EKEvent *> *)addedEvents
+                          addedReminders:(NSArray<EKReminder *> *)addedReminders
+                           deletedEvents:(NSArray<EKEvent *> *)deletedEvents
+                       deletedEventSpans:(NSArray<NSNumber *> *)deletedEventSpans
+                        deletedReminders:(NSArray<EKReminder *> *)deletedReminders
+                             undoManager:(NSUndoManager *)undoManager
+                                   error:(NSError **)error;
+
+- (EKEvent *)eventWithIdentifier:(NSString *)identifier;
+- (EKReminder *)reminderWithIdentifier:(NSString *)identifier;
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error;
 

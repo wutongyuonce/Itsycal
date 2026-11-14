@@ -168,7 +168,13 @@ int main(void) {
 
         [undoManager beginUndoGrouping];
         NSError *saveError = nil;
-        BOOL saved = [center saveBatchEvents:@[batchEvent1, batchEvent2] reminders:@[batchReminder] undoManager:undoManager error:&saveError];
+        BOOL saved = [center applyBatchChangesWithAddedEvents:@[batchEvent1, batchEvent2]
+                                               addedReminders:@[batchReminder]
+                                                deletedEvents:@[]
+                                            deletedEventSpans:@[]
+                                             deletedReminders:@[]
+                                                  undoManager:undoManager
+                                                        error:&saveError];
         [undoManager endUndoGrouping];
         NSCAssert(saved && saveError == nil, @"Batch save must succeed");
         NSCAssert(store.commitCount == 1, @"Batch save must commit once atomically");
@@ -182,11 +188,37 @@ int main(void) {
         NSCAssert(store.savedEvents.count == 2 && store.savedReminders.count == 1, @"Single redo must recreate all batch events and reminders");
         NSCAssert(store.commitCount == 3, @"Batch redo must commit once atomically");
 
+        // Batch delete + undo/redo restoration.
+        EKEvent *existingToDelete = store.savedEvents.allValues.firstObject;
+        EKReminder *existingRemToDelete = store.savedReminders.allValues.firstObject;
+        [undoManager beginUndoGrouping];
+        BOOL deleted = [center applyBatchChangesWithAddedEvents:@[]
+                                                 addedReminders:@[]
+                                                  deletedEvents:@[existingToDelete]
+                                              deletedEventSpans:@[@(EKSpanThisEvent)]
+                                               deletedReminders:@[existingRemToDelete]
+                                                    undoManager:undoManager
+                                                          error:&saveError];
+        [undoManager endUndoGrouping];
+        NSCAssert(deleted && store.savedEvents.count == 1 && store.savedReminders.count == 0, @"Batch delete must remove target event and reminder");
+
+        [undoManager undo];
+        NSCAssert(store.savedEvents.count == 2 && store.savedReminders.count == 1, @"Undo of batch delete must restore deleted event and reminder");
+
+        [undoManager redo];
+        NSCAssert(store.savedEvents.count == 1 && store.savedReminders.count == 0, @"Redo of batch delete must delete restored items again");
+
         // Failed commit rolls back via store reset.
         store.failOnCommit = YES;
         store.didReset = NO;
         EKEvent *failEvent = event(@"Should Rollback", date(28, 9), date(28, 10));
-        BOOL failedSave = [center saveBatchEvents:@[failEvent] reminders:@[] undoManager:undoManager error:&saveError];
+        BOOL failedSave = [center applyBatchChangesWithAddedEvents:@[failEvent]
+                                                    addedReminders:@[]
+                                                     deletedEvents:@[]
+                                                 deletedEventSpans:@[]
+                                                  deletedReminders:@[]
+                                                       undoManager:undoManager
+                                                             error:&saveError];
         NSCAssert(!failedSave && store.didReset, @"Failed batch commit must reset uncommitted changes");
 
         puts("EventCenter checks passed: snapshot interval, partial-cache range, cross-midnight, zero-duration, and batch save/undo/redo");

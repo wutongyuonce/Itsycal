@@ -37,32 +37,44 @@ import SwiftUI
 }
 
 @objc public final class AIExistingItemObjC: NSObject {
+    @objc public let identifier: String
     @objc public let title: String
     @objc public let startDate: Date
     @objc public let endDate: Date
     @objc public let isAllDay: Bool
+    @objc public let calendarID: String
     @objc public let calendarTitle: String
+    @objc public let color: NSColor
     @objc public let isReminder: Bool
 
     @objc public init(
+        identifier: String,
         title: String,
         startDate: Date,
         endDate: Date,
         isAllDay: Bool,
+        calendarID: String,
         calendarTitle: String,
+        color: NSColor,
         isReminder: Bool
     ) {
+        self.identifier = identifier
         self.title = title
         self.startDate = startDate
         self.endDate = endDate
         self.isAllDay = isAllDay
+        self.calendarID = calendarID
         self.calendarTitle = calendarTitle
+        self.color = color
         self.isReminder = isReminder
     }
 }
 
 @objc public final class AICommitItemObjC: NSObject {
+    @objc public let isDelete: Bool
     @objc public let isReminder: Bool
+    @objc public let targetIdentifier: String?
+    @objc public let deleteFutureOccurrences: Bool
     @objc public let title: String
     @objc public let startDate: Date
     @objc public let endDate: Date
@@ -70,6 +82,7 @@ import SwiftUI
     @objc public let hasTime: Bool
     @objc public let calendarID: String
     @objc public let location: String?
+    @objc public let urlString: String?
     @objc public let notes: String?
     @objc public let repeatFrequency: String
     @objc public let repeatEndDate: Date?
@@ -77,7 +90,10 @@ import SwiftUI
     @objc public let priority: Int
 
     public init(from item: AIProposedItem) {
+        self.isDelete = item.operation == .delete
         self.isReminder = item.kind == .reminder
+        self.targetIdentifier = item.targetIdentifier
+        self.deleteFutureOccurrences = item.deleteFutureOccurrences
         self.title = item.title
         self.startDate = item.startDate
         self.endDate = item.endDate
@@ -85,6 +101,7 @@ import SwiftUI
         self.hasTime = item.hasTime
         self.calendarID = item.calendarID
         self.location = item.location
+        self.urlString = item.urlString
         self.notes = item.notes
         self.repeatFrequency = item.repeatFrequency.rawValue
         self.repeatEndDate = item.repeatEndDate
@@ -115,16 +132,66 @@ final class AIAssistantViewModel: ObservableObject {
 
     @Published var inputText: String = ""
     @Published var bubbles: [ChatBubble] = []
-    @Published var drafts: [AIProposedItem] = []
+    @Published var drafts: [AIProposedItem] = [] {
+        didSet { persistSession() }
+    }
     @Published var isLoading: Bool = false
     @Published var isCommitting: Bool = false
 
     weak var hostDelegate: AIAssistantHostDelegate?
     private var conversationHistory: [AIChatMessage] = []
     private var currentTask: Task<Void, Never>?
+    private var cacheObserver: NSObjectProtocol?
+    private var isRestoring = false
+
+    init() {
+        restoreSession()
+        cacheObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("ItsycalAICacheDidClear"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.resetInMemorySession()
+            }
+        }
+    }
+
+    deinit {
+        if let cacheObserver {
+            NotificationCenter.default.removeObserver(cacheObserver)
+        }
+    }
 
     var selectedDraftCount: Int {
         drafts.filter(\.selected).count
+    }
+
+    private func restoreSession() {
+        isRestoring = true
+        defer { isRestoring = false }
+        let snap = AISessionStore.load()
+        conversationHistory = snap.history
+        bubbles = snap.bubbles.map { ChatBubble(isUser: $0.isUser, text: $0.text, isError: $0.isError) }
+        drafts = snap.drafts
+    }
+
+    private func persistSession() {
+        guard !isRestoring else { return }
+        let records = bubbles.suffix(40).map {
+            AISessionSnapshot.BubbleRecord(isUser: $0.isUser, text: $0.text, isError: $0.isError)
+        }
+        let historySlice = Array(conversationHistory.suffix(40))
+        AISessionStore.save(AISessionSnapshot(history: historySlice, bubbles: records, drafts: drafts))
+    }
+
+    private func resetInMemorySession() {
+        isRestoring = true
+        defer { isRestoring = false }
+        cancelCurrentRequest()
+        drafts.removeAll()
+        conversationHistory.removeAll()
+        bubbles.removeAll()
     }
 
     func sendPrompt() {
@@ -132,6 +199,7 @@ final class AIAssistantViewModel: ObservableObject {
         guard !text.isEmpty, !isLoading else { return }
         inputText = ""
         bubbles.append(ChatBubble(isUser: true, text: text, isError: false))
+        persistSession()
 
         let config = AIConfigStore.shared.load()
         guard config.isConfigured else {
@@ -140,6 +208,7 @@ final class AIAssistantViewModel: ObservableObject {
                 text: AICodeModeError.notConfigured.localizedDescription,
                 isError: true
             ))
+            persistSession()
             return
         }
 
@@ -160,8 +229,8 @@ final class AIAssistantViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 conversationHistory.append(AIChatMessage(role: .user, content: text))
                 conversationHistory.append(AIChatMessage(role: .assistant, content: result.reply))
-                drafts = result.items
                 bubbles.append(ChatBubble(isUser: false, text: result.reply, isError: false))
+                drafts = result.items
             } catch is CancellationError {
                 return
             } catch {
@@ -171,6 +240,7 @@ final class AIAssistantViewModel: ObservableObject {
                     text: error.localizedDescription,
                     isError: true
                 ))
+                persistSession()
             }
         }
     }
@@ -182,10 +252,8 @@ final class AIAssistantViewModel: ObservableObject {
     }
 
     func clearOrDiscard() {
-        cancelCurrentRequest()
-        drafts.removeAll()
-        conversationHistory.removeAll()
-        bubbles.removeAll()
+        resetInMemorySession()
+        AISessionStore.save(AISessionSnapshot())
     }
 
     func confirmSelectedItems() {
@@ -198,12 +266,11 @@ final class AIAssistantViewModel: ObservableObject {
                 guard let self else { return }
                 self.isCommitting = false
                 if success {
-                    self.drafts.removeAll()
-                    self.conversationHistory.removeAll()
-                    self.bubbles.removeAll()
+                    self.clearOrDiscard()
                     delegate.aiClosePopover()
                 } else if let errorMessage, !errorMessage.isEmpty {
                     self.bubbles.append(ChatBubble(isUser: false, text: errorMessage, isError: true))
+                    self.persistSession()
                 }
             }
         }
@@ -228,13 +295,19 @@ final class AIAssistantViewModel: ObservableObject {
             )
         }
         let rawExisting = hostDelegate?.aiExistingItems() ?? []
-        let existing = rawExisting.map { item in
-            AIExistingEventSnapshot(
+        let existing = rawExisting.map { item -> AIExistingEventSnapshot in
+            let srgb = item.color.usingColorSpace(.sRGB) ?? item.color
+            var r: CGFloat = 0.2, g: CGFloat = 0.5, b: CGFloat = 0.95, a: CGFloat = 1
+            srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return AIExistingEventSnapshot(
+                id: item.identifier,
                 title: item.title,
                 start: item.startDate,
                 end: item.endDate,
                 isAllDay: item.isAllDay,
+                calendarID: item.calendarID,
                 calendarTitle: item.calendarTitle,
+                colorRGB: [Double(r), Double(g), Double(b)],
                 kind: item.isReminder ? .reminder : .event
             )
         }
@@ -263,7 +336,6 @@ final class AIAssistantViewModel: ObservableObject {
         do {
             return try AICodeModeRunner.run(script: firstScript, host: hostContext)
         } catch let firstErr as AICodeModeError {
-            // Self-heal once if the generated JS script threw an exception.
             if case .scriptException(let jsError) = firstErr {
                 var retryMsgs = msgs
                 retryMsgs.append(AIChatMessage(role: .assistant, content: firstRaw))
@@ -373,7 +445,7 @@ struct AIAssistantPopoverView: View {
                         HStack(spacing: 6) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("正在通过 CodeMode 编排日程…")
+                            Text("正在编排日程变更…")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                             Spacer()
@@ -403,13 +475,14 @@ struct AIAssistantPopoverView: View {
 
     private var emptyPromptHint: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("用自然语言创建日程或提醒事项（支持批量与周期排期）：")
+            Text("用自然语言创建或删除日程与提醒事项（支持批量排期）：")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text("• “明天下午 3 点产品评审 1 小时，提前 15 分钟提醒”")
                 Text("• “从下周一开始每隔两天下午 4 点算法复习，连续 4 次”")
                 Text("• “帮我加两个提醒事项：今晚 8 点交周报、周五买机票”")
+                Text("• “把明天下午的产品评审删掉”")
             }
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
@@ -446,7 +519,7 @@ struct AIAssistantPopoverView: View {
     private var stagingSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("待创建清单（\(vm.selectedDraftCount)/\(vm.drafts.count)）")
+                Text("待执行清单（\(vm.selectedDraftCount)/\(vm.drafts.count)）")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -480,7 +553,7 @@ struct AIAssistantPopoverView: View {
                 Button {
                     vm.confirmSelectedItems()
                 } label: {
-                    Text(vm.isCommitting ? "正在添加…" : "确认添加 (\(vm.selectedDraftCount))")
+                    Text(vm.isCommitting ? "正在执行…" : "确认执行 (\(vm.selectedDraftCount))")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -494,7 +567,8 @@ struct AIAssistantPopoverView: View {
 
     private func draftCardView(item: Binding<AIProposedItem>) -> some View {
         let val = item.wrappedValue
-        let tint = Color(
+        let isDelete = val.operation == .delete
+        let tint = isDelete ? Color.red : Color(
             red: val.calendarColorRGB.indices.contains(0) ? val.calendarColorRGB[0] : 0.2,
             green: val.calendarColorRGB.indices.contains(1) ? val.calendarColorRGB[1] : 0.5,
             blue: val.calendarColorRGB.indices.contains(2) ? val.calendarColorRGB[2] : 0.95
@@ -511,11 +585,20 @@ struct AIAssistantPopoverView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image(systemName: val.kind == .reminder ? "checklist" : "calendar")
+                    Image(systemName: isDelete ? "trash" : (val.kind == .reminder ? "checklist" : "calendar"))
                         .font(.system(size: 10))
                         .foregroundStyle(tint)
+                    if isDelete {
+                        Text("删除")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.red.opacity(0.14)))
+                    }
                     Text(val.title)
                         .font(.system(size: 12, weight: .medium))
+                        .strikethrough(isDelete, color: .secondary)
                         .lineLimit(1)
                     Spacer()
                     Text(val.calendarTitle)
@@ -554,7 +637,7 @@ struct AIAssistantPopoverView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(val.selected ? 0.05 : 0.02))
+                .fill(isDelete ? Color.red.opacity(val.selected ? 0.08 : 0.03) : Color.primary.opacity(val.selected ? 0.05 : 0.02))
         )
         .opacity(val.selected ? 1.0 : 0.55)
     }
@@ -607,7 +690,7 @@ struct AIAssistantPopoverView: View {
     }
 }
 
-// MARK: - Objective-C Popover & Settings Controllers
+// MARK: - Objective-C Popover, Cache & Uninstall Helpers
 
 @objc public final class AIAssistantBridge: NSObject {
     @MainActor
@@ -687,5 +770,44 @@ struct AIAssistantPopoverView: View {
             customInstructions: customInstructions
         )
         AIConfigStore.shared.save(cfg)
+    }
+
+    @objc public static func cacheSizeDescription() -> String {
+        AISessionStore.cacheSizeDescription()
+    }
+
+    @objc public static func clearSessionAndCache() {
+        AISessionStore.clearCache()
+    }
+
+    @objc public static func removeAllAppResidues() {
+        // 1. Clear AI session & URL cache
+        AISessionStore.clearCache()
+        // 2. Delete Keychain secret
+        SystemAIKeychainStore().writeKey("", account: "default")
+        let fm = FileManager.default
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.wutongyuonce.Itsycal"
+        // 3. Remove Application Support/<bundleID>
+        if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            try? fm.removeItem(at: appSupport.appendingPathComponent(bundleID, isDirectory: true))
+        }
+        // 4. Remove Caches/<bundleID>
+        if let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? fm.removeItem(at: caches.appendingPathComponent(bundleID, isDirectory: true))
+        }
+        // 5. Remove App Group shared container (widget snapshot & navigation defaults)
+        if let groupID = Bundle.main.object(forInfoDictionaryKey: "WeekAppGroup") as? String, !groupID.isEmpty {
+            UserDefaults(suiteName: groupID)?.removePersistentDomain(forName: groupID)
+            if let groupURL = fm.containerURL(forSecurityApplicationGroupIdentifier: groupID) {
+                try? fm.removeItem(at: groupURL)
+            }
+        }
+        // 6. Remove standard UserDefaults domain & plist
+        UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        UserDefaults.standard.synchronize()
+        if let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            let prefsPlist = library.appendingPathComponent("Preferences/\(bundleID).plist")
+            try? fm.removeItem(at: prefsPlist)
+        }
     }
 }

@@ -31,16 +31,22 @@
 "About" = "关于";
 /* AI prefs tab label */
 "AI" = "AI";
-"AI Assistant" = "AI 助手";
-"AI Assistant (CodeMode)" = "AI 日程助手 (CodeMode)";
+"AI Assistant" = "AI 日程助手";
 "Protocol:" = "协议：";
 "API URL:" = "接口地址：";
 "Model:" = "模型：";
 "API Key:" = "API Key：";
 "Preferences:" = "偏好说明：";
+"History:" = "会话缓存：";
+"Clear Session & Cache" = "清理会话与缓存";
+"Cleared (0 KB)" = "已清理 (0 KB)";
 "Optional: e.g. Default 30m meetings" = "选填：例如默认会议 30 分钟";
-"Use ⌘K or the ✨ button in Itsycal to create events and reminders with natural language." = "在主窗口点击 ✨ 按钮或按 ⌘K，即可用自然语言批量创建日程与提醒事项。";
+"Use ⌘K or the ✨ button in Itsycal to create or delete events and reminders with natural language." = "在主窗口点击 ✨ 按钮或按 ⌘K，即可用自然语言批量创建或删除日程与提醒事项。";
 "No modifiable reminder list found. Enable Reminders in Settings › Events." = "未找到可写入的提醒事项列表，请在“设置 › 事件”中启用提醒事项。";
+"Clean Uninstall Itsycal…" = "干净卸载 Itsycal…";
+"Clean Uninstall Itsycal?" = "确定要干净卸载 Itsycal 吗？";
+"This will remove Itsycal's login item, preferences, Keychain API key, AI session cache, and widget container, then move Itsycal.app to the Trash and quit." = "这将彻底清理 Itsycal 的开机启动项、偏好设置、Keychain 中的 AI 密钥、AI 会话缓存以及小组件共享容器，随后将 Itsycal.app 移入废纸篓并退出。";
+"Uninstall & Move to Trash" = "彻底卸载并移到废纸篓";
 "Add Location or Video Call" = "添加位置或视频通话";
 "Add Notes" = "添加注释";
 "Add URL" = "添加 URL";

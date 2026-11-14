@@ -112,7 +112,7 @@ enum AIAssistantCheck {
                 AICalendarDescriptor(id: "rem-todo", title: "待办", source: "iCloud", allowsEvents: false, allowsReminders: true, isDefaultReminder: true),
             ],
             existingEvents: [
-                AIExistingEventSnapshot(title: "产品周会", start: existingStart, end: existingEnd, isAllDay: false, calendarTitle: "工作", kind: .event),
+                AIExistingEventSnapshot(id: "ev-weekly-1", title: "产品周会", start: existingStart, end: existingEnd, isAllDay: false, calendarID: "cal-work", calendarTitle: "工作", kind: .event),
             ]
         )
 
@@ -127,6 +127,7 @@ enum AIAssistantCheck {
                 durationMinutes: 60,
                 calendar: '工作',
                 location: '书房',
+                url: 'https://example.com/review',
                 alertMinutes: 15
             });
         }
@@ -136,23 +137,29 @@ enum AIAssistantCheck {
             hasTime: false,
             list: '待办'
         });
+        calendar.proposeDelete({ id: existing[0].id, span: 'this' });
         calendar.reply(`已根据 ${ctx.today} 生成计划（检测到当天已有 ${existing.length} 个日程）`);
         """
 
         let result = try AICodeModeRunner.run(script: script, host: host)
-        assert(result.items.count == 4, "Should propose 3 events and 1 reminder")
+        assert(result.items.count == 5, "Should propose 3 events, 1 reminder, and 1 delete")
         assert(result.reply.contains("2026-11-14") && result.reply.contains("已有 1 个日程"))
 
         let firstEvent = result.items[0]
-        assert(firstEvent.kind == .event && firstEvent.title == "算法复习 #1")
+        assert(firstEvent.operation == .create && firstEvent.kind == .event && firstEvent.title == "算法复习 #1")
         assert(firstEvent.calendarID == "cal-work")
+        assert(firstEvent.urlString == "https://example.com/review")
         assert(firstEvent.conflictTitles == ["产品周会"], "Overlapping event on Nov 16 15:00 must report conflict")
         assert(result.items[1].conflictTitles.isEmpty, "Nov 17 event has no conflict")
 
         let reminder = result.items[3]
-        assert(reminder.kind == .reminder && reminder.title == "提交周报")
+        assert(reminder.operation == .create && reminder.kind == .reminder && reminder.title == "提交周报")
         assert(!reminder.hasTime && reminder.isAllDay)
         assert(reminder.calendarID == "rem-todo")
+
+        let deleted = result.items[4]
+        assert(deleted.operation == .delete && deleted.kind == .event)
+        assert(deleted.targetIdentifier == "ev-weekly-1" && deleted.title == "产品周会")
 
         // Cap check: proposing 100 items is capped at maxProposedItems (50).
         let capScript = """

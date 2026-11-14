@@ -14,6 +14,8 @@
     NSTextField *_modelField;
     NSSecureTextField *_apiKeyField;
     NSTextField *_instructionsField;
+    NSButton *_clearCacheBtn;
+    NSTextField *_cacheInfoLabel;
     NSTextField *_statusLabel;
 }
 
@@ -28,7 +30,7 @@
         return txt;
     };
 
-    NSTextField *heading = [NSTextField labelWithString:NSLocalizedString(@"AI Assistant (CodeMode)", @"")];
+    NSTextField *heading = [NSTextField labelWithString:NSLocalizedString(@"AI Assistant", @"")];
     heading.font = [NSFont boldSystemFontOfSize:heading.font.pointSize - 1];
     [v addSubview:heading];
 
@@ -79,19 +81,29 @@
     _instructionsField.delegate = self;
     [v addSubview:_instructionsField];
 
-    _statusLabel = [NSTextField wrappingLabelWithString:NSLocalizedString(@"Use ⌘K or the ✨ button in Itsycal to create events and reminders with natural language.", @"")];
+    NSTextField *cacheLabel = label(NSLocalizedString(@"History:", @""));
+    _clearCacheBtn = [NSButton buttonWithTitle:NSLocalizedString(@"Clear Session & Cache", @"") target:self action:@selector(clearCacheClicked:)];
+    [v addSubview:_clearCacheBtn];
+
+    _cacheInfoLabel = [NSTextField labelWithString:@"0 KB"];
+    _cacheInfoLabel.font = [NSFont systemFontOfSize:11];
+    _cacheInfoLabel.textColor = NSColor.secondaryLabelColor;
+    [v addSubview:_cacheInfoLabel];
+
+    _statusLabel = [NSTextField wrappingLabelWithString:NSLocalizedString(@"Use ⌘K or the ✨ button in Itsycal to create or delete events and reminders with natural language.", @"")];
     _statusLabel.font = [NSFont systemFontOfSize:11];
     _statusLabel.textColor = NSColor.secondaryLabelColor;
     [v addSubview:_statusLabel];
 
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @20} views:NSDictionaryOfVariableBindings(heading, separator, protocolLabel, _protocolPopup, urlLabel, _baseURLField, modelLabel, _modelField, keyLabel, _apiKeyField, instructionsLabel, _instructionsField, _statusLabel)];
-    [vfl :@"V:|-m-[heading]-12-[_protocolPopup]-10-[_baseURLField]-10-[_modelField]-10-[_apiKeyField]-10-[_instructionsField]-14-[_statusLabel]-m-|"];
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @20} views:NSDictionaryOfVariableBindings(heading, separator, protocolLabel, _protocolPopup, urlLabel, _baseURLField, modelLabel, _modelField, keyLabel, _apiKeyField, instructionsLabel, _instructionsField, cacheLabel, _clearCacheBtn, _cacheInfoLabel, _statusLabel)];
+    [vfl :@"V:|-m-[heading]-12-[_protocolPopup]-10-[_baseURLField]-10-[_modelField]-10-[_apiKeyField]-10-[_instructionsField]-12-[_clearCacheBtn]-14-[_statusLabel]-m-|"];
     [vfl :@"H:|-m-[heading]-[separator]-m-|" :NSLayoutFormatAlignAllCenterY];
     [vfl :@"H:|-m-[protocolLabel(80)]-[_protocolPopup(>=210)]-m-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[urlLabel(80)]-[_baseURLField(>=210)]-m-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[modelLabel(80)]-[_modelField(>=210)]-m-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[keyLabel(80)]-[_apiKeyField(>=210)]-m-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[instructionsLabel(80)]-[_instructionsField(>=210)]-m-|" :NSLayoutFormatAlignAllFirstBaseline];
+    [vfl :@"H:|-m-[cacheLabel(80)]-[_clearCacheBtn]-8-[_cacheInfoLabel]-(>=m)-|" :NSLayoutFormatAlignAllFirstBaseline];
     [vfl :@"H:|-m-[_statusLabel]-m-|"];
 
     self.view = v;
@@ -118,6 +130,7 @@
     _instructionsField.stringValue = [AIAssistantBridge currentCustomInstructions];
     _baseURLField.placeholderString = [AIAssistantBridge defaultBaseURLForProtocolIndex:_protocolPopup.indexOfSelectedItem];
     _modelField.placeholderString = [AIAssistantBridge defaultModelForProtocolIndex:_protocolPopup.indexOfSelectedItem];
+    _cacheInfoLabel.stringValue = [AIAssistantBridge cacheSizeDescription];
 }
 
 - (void)protocolChanged:(id)sender
@@ -126,6 +139,12 @@
     NSInteger newIdx = _protocolPopup.indexOfSelectedItem;
     [AIAssistantBridge switchProtocolIndex:newIdx];
     [self reloadFromStore];
+}
+
+- (void)clearCacheClicked:(id)sender
+{
+    [AIAssistantBridge clearSessionAndCache];
+    _cacheInfoLabel.stringValue = NSLocalizedString(@"Cleared (0 KB)", @"");
 }
 
 - (void)controlTextDidChange:(NSNotification *)obj

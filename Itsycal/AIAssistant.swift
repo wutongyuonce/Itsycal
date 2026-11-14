@@ -154,6 +154,11 @@ public final class AIConfigStore {
 
 // MARK: - CodeMode Data Models
 
+public enum AIProposedOperation: String, Codable, Sendable {
+    case create
+    case delete
+}
+
 public enum AIProposedKind: String, Codable, Sendable {
     case event
     case reminder
@@ -181,8 +186,11 @@ public enum AIRepeatFrequency: String, Codable, CaseIterable, Sendable {
 
 public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
+    public var operation: AIProposedOperation
     public var kind: AIProposedKind
     public var selected: Bool
+    public var targetIdentifier: String?
+    public var deleteFutureOccurrences: Bool
     public var title: String
     public var startDate: Date
     public var endDate: Date
@@ -192,6 +200,7 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
     public var calendarTitle: String
     public var calendarColorRGB: [Double]
     public var location: String?
+    public var urlString: String?
     public var notes: String?
     public var repeatFrequency: AIRepeatFrequency
     public var repeatEndDate: Date?
@@ -201,8 +210,11 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
 
     public init(
         id: UUID = UUID(),
+        operation: AIProposedOperation = .create,
         kind: AIProposedKind,
         selected: Bool = true,
+        targetIdentifier: String? = nil,
+        deleteFutureOccurrences: Bool = false,
         title: String,
         startDate: Date,
         endDate: Date,
@@ -212,6 +224,7 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
         calendarTitle: String,
         calendarColorRGB: [Double] = [0.2, 0.5, 0.95],
         location: String? = nil,
+        urlString: String? = nil,
         notes: String? = nil,
         repeatFrequency: AIRepeatFrequency = .none,
         repeatEndDate: Date? = nil,
@@ -220,8 +233,11 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
         conflictTitles: [String] = []
     ) {
         self.id = id
+        self.operation = operation
         self.kind = kind
         self.selected = selected
+        self.targetIdentifier = targetIdentifier
+        self.deleteFutureOccurrences = deleteFutureOccurrences
         self.title = title
         self.startDate = startDate
         self.endDate = endDate
@@ -231,6 +247,7 @@ public struct AIProposedItem: Identifiable, Codable, Equatable, Sendable {
         self.calendarTitle = calendarTitle
         self.calendarColorRGB = calendarColorRGB
         self.location = location
+        self.urlString = urlString
         self.notes = notes
         self.repeatFrequency = repeatFrequency
         self.repeatEndDate = repeatEndDate
@@ -272,19 +289,35 @@ public struct AICalendarDescriptor: Codable, Equatable, Sendable {
 }
 
 public struct AIExistingEventSnapshot: Codable, Equatable, Sendable {
+    public let id: String
     public let title: String
     public let start: Date
     public let end: Date
     public let isAllDay: Bool
+    public let calendarID: String
     public let calendarTitle: String
+    public let colorRGB: [Double]
     public let kind: AIProposedKind
 
-    public init(title: String, start: Date, end: Date, isAllDay: Bool, calendarTitle: String, kind: AIProposedKind = .event) {
+    public init(
+        id: String = "",
+        title: String,
+        start: Date,
+        end: Date,
+        isAllDay: Bool,
+        calendarID: String = "",
+        calendarTitle: String,
+        colorRGB: [Double] = [0.2, 0.5, 0.95],
+        kind: AIProposedKind = .event
+    ) {
+        self.id = id
         self.title = title
         self.start = start
         self.end = end
         self.isAllDay = isAllDay
+        self.calendarID = calendarID
         self.calendarTitle = calendarTitle
+        self.colorRGB = colorRGB
         self.kind = kind
     }
 }
@@ -492,6 +525,7 @@ public enum AICodeModeRunner {
                 ev.start < endDate && ev.end >= startDate
             }.map { ev -> [String: Any] in
                 [
+                    "id": ev.id,
                     "title": ev.title,
                     "start": ev.isAllDay ? dayOnlyISO.string(from: ev.start) : localISO.string(from: ev.start),
                     "end": ev.isAllDay ? dayOnlyISO.string(from: ev.end) : localISO.string(from: ev.end),
@@ -506,7 +540,9 @@ public enum AICodeModeRunner {
         let getDraftsBlock: @convention(block) () -> NSArray = {
             let list = host.currentDrafts.map { item -> [String: Any] in
                 [
+                    "operation": item.operation.rawValue,
                     "kind": item.kind.rawValue,
+                    "targetId": item.targetIdentifier ?? "",
                     "title": item.title,
                     "start": item.isAllDay ? dayOnlyISO.string(from: item.startDate) : localISO.string(from: item.startDate),
                     "end": item.isAllDay ? dayOnlyISO.string(from: item.endDate) : localISO.string(from: item.endDate),
@@ -514,6 +550,7 @@ public enum AICodeModeRunner {
                     "hasTime": item.hasTime,
                     "calendar": item.calendarTitle,
                     "location": item.location ?? "",
+                    "url": item.urlString ?? "",
                     "notes": item.notes ?? "",
                     "repeat": item.repeatFrequency.rawValue,
                 ]
@@ -548,6 +585,7 @@ public enum AICodeModeRunner {
 
             let calDesc = resolveEventCalendar((dict["calendarId"] as? String) ?? (dict["calendar"] as? String))
             let location = (dict["location"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let urlString = (dict["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let notes = (dict["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let repeatRaw = ((dict["repeat"] as? String) ?? "none").lowercased()
             let repeatFreq = AIRepeatFrequency(rawValue: repeatRaw) ?? .none
@@ -555,6 +593,7 @@ public enum AICodeModeRunner {
             let alertMinutes = (dict["alertMinutes"] as? NSNumber)?.intValue
 
             let item = AIProposedItem(
+                operation: .create,
                 kind: .event,
                 selected: true,
                 title: title,
@@ -566,6 +605,7 @@ public enum AICodeModeRunner {
                 calendarTitle: calDesc.title,
                 calendarColorRGB: calDesc.colorRGB,
                 location: (location?.isEmpty == false) ? location : nil,
+                urlString: (urlString?.isEmpty == false) ? urlString : nil,
                 notes: (notes?.isEmpty == false) ? notes : nil,
                 repeatFrequency: repeatFreq,
                 repeatEndDate: repeatEnd,
@@ -592,6 +632,7 @@ public enum AICodeModeRunner {
             let dueDate = hasTime ? baseDue : calFormat.startOfDay(for: baseDue)
 
             let calDesc = resolveReminderCalendar((dict["listId"] as? String) ?? (dict["list"] as? String) ?? (dict["calendar"] as? String))
+            let urlString = (dict["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let notes = (dict["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let repeatRaw = ((dict["repeat"] as? String) ?? "none").lowercased()
             let repeatFreq = AIRepeatFrequency(rawValue: repeatRaw) ?? .none
@@ -600,6 +641,7 @@ public enum AICodeModeRunner {
             let priority = (dict["priority"] as? NSNumber)?.intValue ?? 0
 
             let item = AIProposedItem(
+                operation: .create,
                 kind: .reminder,
                 selected: true,
                 title: title,
@@ -611,12 +653,60 @@ public enum AICodeModeRunner {
                 calendarTitle: calDesc.title,
                 calendarColorRGB: calDesc.colorRGB,
                 location: nil,
+                urlString: (urlString?.isEmpty == false) ? urlString : nil,
                 notes: (notes?.isEmpty == false) ? notes : nil,
                 repeatFrequency: repeatFreq,
                 repeatEndDate: repeatEnd,
                 alertMinutesBefore: alertMinutes,
                 priority: priority,
                 conflictTitles: []
+            )
+            proposed.append(item)
+            return true
+        }
+
+        let proposeDeleteBlock: @convention(block) (JSValue?) -> Bool = { rawVal in
+            guard proposed.count < Self.maxProposedItems,
+                  let dict = rawVal?.toDictionary() as? [String: Any] else {
+                return false
+            }
+            let rawID = (dict["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawTitle = (dict["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsedStart = parseDate(dict["start"] ?? dict["startDate"] ?? dict["due"])
+            let spanStr = ((dict["span"] as? String) ?? "this").lowercased()
+            let deleteFuture = spanStr == "future" || spanStr == "all"
+
+            var matched: AIExistingEventSnapshot?
+            if let rawID, !rawID.isEmpty {
+                matched = host.existingEvents.first(where: { $0.id == rawID })
+            }
+            if matched == nil, let rawTitle, !rawTitle.isEmpty {
+                let candidates = host.existingEvents.filter {
+                    $0.title.caseInsensitiveCompare(rawTitle) == .orderedSame ||
+                    $0.title.localizedCaseInsensitiveContains(rawTitle)
+                }
+                if let targetDate = parsedStart?.date {
+                    matched = candidates.first(where: { calFormat.isDate($0.start, inSameDayAs: targetDate) }) ?? candidates.first
+                } else {
+                    matched = candidates.first
+                }
+            }
+            guard let target = matched else { return false }
+
+            let item = AIProposedItem(
+                operation: .delete,
+                kind: target.kind,
+                selected: true,
+                targetIdentifier: target.id,
+                deleteFutureOccurrences: deleteFuture,
+                title: target.title,
+                startDate: target.start,
+                endDate: target.end,
+                isAllDay: target.isAllDay,
+                hasTime: !target.isAllDay,
+                calendarID: target.calendarID,
+                calendarTitle: target.calendarTitle,
+                calendarColorRGB: target.colorRGB
             )
             proposed.append(item)
             return true
@@ -634,6 +724,7 @@ public enum AICodeModeRunner {
         jsContext.setObject(getDraftsBlock, forKeyedSubscript: "__itsycalGetDrafts" as NSString)
         jsContext.setObject(proposeEventBlock, forKeyedSubscript: "__itsycalProposeEvent" as NSString)
         jsContext.setObject(proposeReminderBlock, forKeyedSubscript: "__itsycalProposeReminder" as NSString)
+        jsContext.setObject(proposeDeleteBlock, forKeyedSubscript: "__itsycalProposeDelete" as NSString)
         jsContext.setObject(setReplyBlock, forKeyedSubscript: "__itsycalSetReply" as NSString)
 
         let prelude = """
@@ -644,11 +735,14 @@ public enum AICodeModeRunner {
             getDrafts: () => __itsycalGetDrafts(),
             proposeEvent: (item) => __itsycalProposeEvent(item),
             proposeReminder: (item) => __itsycalProposeReminder(item),
+            proposeDelete: (item) => __itsycalProposeDelete(item),
             proposeBatch: (items) => {
                 if (!Array.isArray(items)) return 0;
                 let count = 0;
                 for (const it of items) {
-                    if (it && it.kind === 'reminder') {
+                    if (it && (it.operation === 'delete' || it.kind === 'delete')) {
+                        if (__itsycalProposeDelete(it)) count++;
+                    } else if (it && it.kind === 'reminder') {
                         if (__itsycalProposeReminder(it)) count++;
                     } else if (it) {
                         if (__itsycalProposeEvent(it)) count++;
@@ -675,14 +769,16 @@ public enum AICodeModeRunner {
 
         if assistantMessage.isEmpty {
             if proposed.isEmpty {
-                assistantMessage = "未生成待办日程，请补充具体时间或事件内容。"
+                assistantMessage = "未生成待办变更，请补充具体时间或事件内容。"
             } else {
-                let eventCount = proposed.filter { $0.kind == .event }.count
-                let remCount = proposed.filter { $0.kind == .reminder }.count
+                let createEventCount = proposed.filter { $0.operation == .create && $0.kind == .event }.count
+                let createRemCount = proposed.filter { $0.operation == .create && $0.kind == .reminder }.count
+                let deleteCount = proposed.filter { $0.operation == .delete }.count
                 var parts: [String] = []
-                if eventCount > 0 { parts.append("\(eventCount) 个日程") }
-                if remCount > 0 { parts.append("\(remCount) 个提醒事项") }
-                assistantMessage = "已为您生成 " + parts.joined(separator: "、") + "，请确认或继续微调："
+                if createEventCount > 0 { parts.append("新增 \(createEventCount) 个日程") }
+                if createRemCount > 0 { parts.append("新增 \(createRemCount) 个提醒事项") }
+                if deleteCount > 0 { parts.append("删除 \(deleteCount) 项") }
+                assistantMessage = "已为您准备 " + parts.joined(separator: "、") + "，请确认或继续微调："
             }
         }
 
@@ -692,8 +788,8 @@ public enum AICodeModeRunner {
 
 // MARK: - Multi-Protocol LLM Client
 
-public struct AIChatMessage: Equatable, Sendable {
-    public enum Role: String, Sendable {
+public struct AIChatMessage: Codable, Equatable, Sendable {
+    public enum Role: String, Codable, Sendable {
         case user
         case assistant
     }
@@ -703,6 +799,79 @@ public struct AIChatMessage: Equatable, Sendable {
     public init(role: Role, content: String) {
         self.role = role
         self.content = content
+    }
+}
+
+public struct AISessionSnapshot: Codable, Equatable, Sendable {
+    public struct BubbleRecord: Codable, Equatable, Sendable {
+        public let isUser: Bool
+        public let text: String
+        public let isError: Bool
+
+        public init(isUser: Bool, text: String, isError: Bool) {
+            self.isUser = isUser
+            self.text = text
+            self.isError = isError
+        }
+    }
+
+    public var history: [AIChatMessage]
+    public var bubbles: [BubbleRecord]
+    public var drafts: [AIProposedItem]
+
+    public init(history: [AIChatMessage] = [], bubbles: [BubbleRecord] = [], drafts: [AIProposedItem] = []) {
+        self.history = history
+        self.bubbles = bubbles
+        self.drafts = drafts
+    }
+}
+
+public enum AISessionStore {
+    public static func sessionFileURL() -> URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.wutongyuonce.Itsycal"
+        let dir = appSupport.appendingPathComponent(bundleID, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("ai-session.json", isDirectory: false)
+    }
+
+    public static func load() -> AISessionSnapshot {
+        guard let url = sessionFileURL(),
+              let data = try? Data(contentsOf: url),
+              let snap = try? JSONDecoder().decode(AISessionSnapshot.self, from: data) else {
+            return AISessionSnapshot()
+        }
+        return snap
+    }
+
+    public static func save(_ snapshot: AISessionSnapshot) {
+        guard let url = sessionFileURL(),
+              let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    public static func clearCache() {
+        if let url = sessionFileURL() {
+            try? FileManager.default.removeItem(at: url)
+        }
+        URLCache.shared.removeAllCachedResponses()
+        NotificationCenter.default.post(name: Notification.Name("ItsycalAICacheDidClear"), object: nil)
+    }
+
+    public static func cacheSizeDescription() -> String {
+        var bytes: Int64 = Int64(URLCache.shared.currentDiskUsage)
+        if let url = sessionFileURL(),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let fileSize = attrs[.size] as? NSNumber {
+            bytes += fileSize.int64Value
+        }
+        if bytes <= 0 { return "0 KB" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -740,11 +909,11 @@ public enum AILLMClient {
             let draftLines = host.currentDrafts.enumerated().map { idx, d in
                 let startStr = d.isAllDay ? dayOnly.string(from: d.startDate) : localISO.string(from: d.startDate)
                 let endStr = d.isAllDay ? dayOnly.string(from: d.endDate) : localISO.string(from: d.endDate)
-                return "\(idx + 1). [\(d.kind.rawValue)] title=\"\(d.title)\", start=\"\(startStr)\", end=\"\(endStr)\", isAllDay=\(d.isAllDay), hasTime=\(d.hasTime), calendar=\"\(d.calendarTitle)\", repeat=\"\(d.repeatFrequency.rawValue)\", location=\"\(d.location ?? "")\", notes=\"\(d.notes ?? "")\""
+                return "\(idx + 1). [\(d.operation.rawValue):\(d.kind.rawValue)] id=\"\(d.targetIdentifier ?? "")\", title=\"\(d.title)\", start=\"\(startStr)\", end=\"\(endStr)\", isAllDay=\(d.isAllDay), hasTime=\(d.hasTime), calendar=\"\(d.calendarTitle)\", repeat=\"\(d.repeatFrequency.rawValue)\", location=\"\(d.location ?? "")\", url=\"\(d.urlString ?? "")\", notes=\"\(d.notes ?? "")\""
             }.joined(separator: "\n")
             draftsSection = """
 
-            Current pending drafts (when the user asks to modify/adjust/delete items, output a complete updated draft list using calendar.proposeEvent / calendar.proposeReminder):
+            Current pending drafts (when the user asks to modify/adjust/delete items, output a complete updated draft list using calendar.proposeEvent / calendar.proposeReminder / calendar.proposeDelete):
             \(draftLines)
             """
         }
@@ -754,7 +923,7 @@ public enum AILLMClient {
 
         return """
         You are Itsycal's calendar & reminders CodeMode assistant.
-        Respond with a single ```javascript code block that uses the built-in `calendar` sandbox object to propose events or reminders.
+        Respond with a single ```javascript code block that uses the built-in `calendar` sandbox object to propose creating or deleting events and reminders.
 
         Context:
         - Current local time: \(localISO.string(from: host.now)) (\(weekdaySymbols[wd - 1]), TimeZone: \(host.timeZone.identifier))
@@ -765,19 +934,21 @@ public enum AILLMClient {
         Available synchronous JS APIs on `calendar`:
         - `calendar.getContext()` -> `{ now, today, selectedDate, weekday, timeZone }`
         - `calendar.listCalendars()` -> `Array<{ id, title, source, allowsEvents, allowsReminders, isDefaultEvent, isDefaultReminder }>`
-        - `calendar.queryEvents(startISO, endISO)` -> `Array<{ title, start, end, isAllDay, calendar, kind }>`
+        - `calendar.queryEvents(startISO, endISO)` -> `Array<{ id, title, start, end, isAllDay, calendar, kind }>`
         - `calendar.getDrafts()` -> current staged drafts array
-        - `calendar.proposeEvent({ title, start, end, durationMinutes, isAllDay, calendar, location, notes, repeat, repeatEnd, alertMinutes })`
+        - `calendar.proposeEvent({ title, start, end, durationMinutes, isAllDay, calendar, location, url, notes, repeat, repeatEnd, alertMinutes })`
           - `start` / `end`: local ISO string `"YYYY-MM-DDTHH:mm:ss"` (or `"YYYY-MM-DD"` for all-day).
           - `repeat`: `"none" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly"`.
-        - `calendar.proposeReminder({ title, due, hasTime, list, notes, repeat, repeatEnd, alertMinutes, priority })`
+        - `calendar.proposeReminder({ title, due, hasTime, list, url, notes, repeat, repeatEnd, alertMinutes, priority })`
           - `due`: `"YYYY-MM-DDTHH:mm:ss"` when `hasTime: true`, or `"YYYY-MM-DD"` when `hasTime: false`.
+        - `calendar.proposeDelete({ id, title, start, span })`
+          - Propose deleting an existing event or reminder (call `calendar.queryEvents(startISO, endISO)` to inspect items, or pass `id` or `title` + `start`). `span` can be `"this"` (default) or `"future"`.
         - `calendar.reply("short summary in user's language")`
 
         Rules:
         1. Output ONLY valid JavaScript inside a ```javascript ... ``` block. Do not use external imports or async/await.
         2. Use loops or date arithmetic in JS when the user asks for multiple or batch events.
-        3. Use `calendar.proposeReminder` when the user mentions reminders/todos (提醒/待办), and `calendar.proposeEvent` for calendar events/meetings/schedules (日程/会议/安排).
+        3. Use `calendar.proposeReminder` for reminders/todos (提醒/待办), `calendar.proposeEvent` for calendar events (日程/会议/安排), and `calendar.proposeDelete` when the user asks to delete existing events or reminders.
         4. Always call `calendar.reply(...)` with a concise, friendly confirmation message in the user's language.
         """
     }
