@@ -208,6 +208,22 @@ int main(void) {
         [undoManager redo];
         NSCAssert(store.savedEvents.count == 1 && store.savedReminders.count == 0, @"Redo of batch delete must delete restored items again");
 
+        // Edit existing event + undo/redo restoration.
+        EKEvent *editableEvent = store.savedEvents.allValues.firstObject;
+        NSString *originalTitle = editableEvent.title;
+        [undoManager beginUndoGrouping];
+        BOOL updated = [center updateItem:editableEvent span:EKSpanThisEvent changes:^(EKCalendarItem *target) {
+            target.title = @"Updated Title";
+        } undoManager:undoManager error:&saveError];
+        [undoManager endUndoGrouping];
+        NSCAssert(updated && [editableEvent.title isEqualToString:@"Updated Title"], @"updateItem must modify event title");
+
+        [undoManager undo];
+        NSCAssert([editableEvent.title isEqualToString:originalTitle], @"Undo of updateItem must restore previous title");
+
+        [undoManager redo];
+        NSCAssert([editableEvent.title isEqualToString:@"Updated Title"], @"Redo of updateItem must reapply updated title");
+
         // Failed commit rolls back via store reset.
         store.failOnCommit = YES;
         store.didReset = NO;

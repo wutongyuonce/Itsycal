@@ -67,9 +67,12 @@ const NSInteger kAlertRegularIndexForAllDay[kAlertAllDayNumOffsets] = {0, 1, 8, 
 // Itsycal adds at most this many alerts to an event.
 const NSUInteger kAlertMaxCount = 3;
 
+static const NSInteger kCustomRepeatTag = -1;
+
 @implementation EventViewController
 {
-    NSTextField *_title, *_location, *_url, *_repEndLabel;
+    NSSegmentedControl *_kindControl;
+    NSTextField *_title, *_location, *_url, *_startsLabel, *_endsLabel, *_repEndLabel;
     NSButton *_allDayCheckbox, *_saveButton;
     NSDatePicker *_startDate, *_endDate, *_repEndDate;
     NSPopUpButton *_repPopup, *_repEndPopup, *_alertPopup, *_calPopup;
@@ -80,6 +83,9 @@ const NSUInteger kAlertMaxCount = 3;
     NSLayoutConstraint *_addAlertButtonTopConstraint;
     NSInteger _defaultAlertIndex;
     BOOL _defaultAlertKept;
+    BOOL _recurrenceModified;
+    BOOL _alarmsModified;
+    NSTimeInterval _durationSeconds;
     HackyTextView *_notes;
     NSScrollView *_notesScrollView;
     NSLayoutConstraint *_notesScrollViewHeightConstraint;
@@ -90,7 +96,16 @@ const NSUInteger kAlertMaxCount = 3;
 {
     // View controller content view
     NSView *v = [NSView new];
-    
+
+    // Kind segmented control (Event vs Reminder, shown when creating a new item)
+    _kindControl = [NSSegmentedControl segmentedControlWithLabels:@[
+        NSLocalizedString(@"Event", @""),
+        NSLocalizedString(@"Reminder", @"")
+    ] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(kindChanged:)];
+    _kindControl.selectedSegment = 0;
+    _kindControl.segmentDistribution = NSSegmentDistributionFillEqually;
+    [v addSubview:_kindControl];
+
     // TextField maker
     NSTextField* (^txt)(NSString*, BOOL) = ^NSTextField* (NSString *stringValue, BOOL isEditable) {
         NSTextField *txt;
@@ -131,7 +146,7 @@ const NSUInteger kAlertMaxCount = 3;
         [v addSubview:pop];
         return pop;
     };
-    
+
     // Button maker
     NSButton* (^btn)(NSString*, id, SEL) = ^NSButton* (NSString *title, id target, SEL action) {
         NSButton *btn = [NSButton buttonWithTitle:title target:target action:action];
@@ -145,7 +160,7 @@ const NSUInteger kAlertMaxCount = 3;
     _title.font = [NSFont systemFontOfSize:16 weight:NSFontWeightMedium];
     _location = txt(NSLocalizedString(@"Add Location or Video Call", @""), YES);
     _url = txt(NSLocalizedString(@"Add URL", @""), YES);
-    
+
     // All-day checkbox
     _allDayCheckbox = [NSButton new];
     _allDayCheckbox.title = @"";
@@ -153,36 +168,35 @@ const NSUInteger kAlertMaxCount = 3;
     _allDayCheckbox.action = @selector(allDayClicked:);
     [_allDayCheckbox setButtonType:NSButtonTypeSwitch];
     [v addSubview:_allDayCheckbox];
-    
+
     // Static labels
     NSTextField *allDayLabel = txt(NSLocalizedString(@"All-day:", @""), NO);
-    NSTextField *startsLabel = txt(NSLocalizedString(@"Starts:", @""), NO);
-    NSTextField *endsLabel   = txt(NSLocalizedString(@"Ends:", @""), NO);
+    _startsLabel             = txt(NSLocalizedString(@"Starts:", @""), NO);
+    _endsLabel               = txt(NSLocalizedString(@"Ends:", @""), NO);
     NSTextField *repLabel    = txt(NSLocalizedString(@"Repeat:", @""), NO);
                 _repEndLabel = txt(NSLocalizedString(@"End Repeat:", @""), NO);
     NSTextField *alertLabel  = txt(NSLocalizedString(@"Alert:", @""), NO);
-    
+
     // Date pickers
     _startDate = picker();
     _startDate.target = self;
     _startDate.action = @selector(startDateChanged:);
-    _endDate    = picker();
+    _endDate = picker();
+    _endDate.target = self;
+    _endDate.action = @selector(endDateChanged:);
     _repEndDate = picker();
     _repEndDate.datePickerElements = NSDatePickerElementFlagYearMonthDay;
-    
+    _repEndDate.target = self;
+    _repEndDate.action = @selector(repEndDateChanged:);
+
     // Popups
     _repPopup = popup(@selector(repPopupChanged:));
-    [_repPopup addItemsWithTitles:@[NSLocalizedString(@"None", @"Repeat none"),
-                                    NSLocalizedString(@"Every Day", @""),
-                                    NSLocalizedString(@"Every Week", @""),
-                                    [NSString stringWithFormat:NSLocalizedString(@"Every %zd Weeks", nil), (NSInteger)2],
-                                    NSLocalizedString(@"Every Month", @""),
-                                    NSLocalizedString(@"Every Year", @"")]];
-    
+    [self resetRepPopupItemsWithCustom:NO];
+
     _repEndPopup = popup(@selector(repEndPopupChanged:));
     [_repEndPopup addItemsWithTitles:@[NSLocalizedString(@"Never", @"Repeat ends never"),
                                        NSLocalizedString(@"On Date", @"")]];
-    
+
     _alertPopup = popup(@selector(alertPopupChanged:));
     _alertAllDayStrings = @[
         NSLocalizedString(@"None", @"Alert none"),
@@ -201,20 +215,12 @@ const NSUInteger kAlertMaxCount = 3;
         NSLocalizedString(@"2 hours before", @""),
         NSLocalizedString(@"1 day before", @""),
         NSLocalizedString(@"2 days before", @"")];
-    // This is a hack.
-    // Populate the alert with all possible values (there are
-    // different values for regular vs. all-day events) so the
-    // Autolayout engine can calculate the correct maximum
-    // width of the button. The real values will be repopulated
-    // in -viewWillAppear. Without this hack, the view may
-    // change width when the user toggles between regular and
-    // all-day events as the popup gets wider or narrower.
+    // Populate the alert with all possible values so Autolayout can
+    // calculate the maximum width of the button.
     [_alertPopup addItemsWithTitles:_alertAllDayStrings];
     [_alertPopup addItemsWithTitles:_alertRegularStrings];
     _alertLabels = [NSMutableArray arrayWithObject:alertLabel];
     _alertPopups = [NSMutableArray arrayWithObject:_alertPopup];
-    // Draw the '+' into a plain image so NSButton centers it instead
-    // of shifting it down to align with text.
     NSImage *plus = [[NSImage imageWithSystemSymbolName:@"plus" accessibilityDescription:nil] imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
     NSImage *plusImage = [NSImage imageWithSize:plus.size flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
         [plus drawInRect:dstRect];
@@ -257,31 +263,28 @@ const NSUInteger kAlertMaxCount = 3;
 
     _calPopup = popup(@selector(calPopupChanged:));
     _calPopup.imagePosition = NSImageOnly;
-    
-    // This is a hack.
-    // Populate _calPopup with a dummy item so the Autolayout
-    // engine can calculate its correct width. The real values
-    // will be repopulated in -viewWillAppear.
+
     NSMenuItem *calItem = [NSMenuItem new];
     calItem.image = [NSImage imageWithSize:NSMakeSize(8, 8) flipped:NO drawingHandler:^BOOL(NSRect dstRect) { return YES; }];
     calItem.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
     [_calPopup.menu addItem:calItem];
-    
+
     // Save and Cancel buttons
     _saveButton = btn(NSLocalizedString(@"Save Event", @""), self, @selector(saveEvent:));
-    _saveButton.enabled = NO; // we'll enable when the form is valid.
+    _saveButton.enabled = NO;
     NSButton *cancelButton = btn(NSLocalizedString(@"Cancel", @""), self, @selector(cancelOperation:));
-    
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:nil views:NSDictionaryOfVariableBindings(_title, _calPopup, _location, _allDayCheckbox, allDayLabel, startsLabel, endsLabel, _startDate, _endDate, repLabel, alertLabel, _repPopup, _repEndLabel, _repEndPopup, _repEndDate, _alertPopup, _addAlertButton, _notesScrollView, _url, cancelButton, _saveButton)];
 
-    [vfl :@"V:|-[_title]-[_location]-15-[_allDayCheckbox]"];
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:v metrics:nil views:NSDictionaryOfVariableBindings(_kindControl, _title, _calPopup, _location, _allDayCheckbox, allDayLabel, _startsLabel, _endsLabel, _startDate, _endDate, repLabel, alertLabel, _repPopup, _repEndLabel, _repEndPopup, _repEndDate, _alertPopup, _addAlertButton, _notesScrollView, _url, cancelButton, _saveButton)];
+
+    [vfl :@"V:|-[_kindControl]-10-[_title]-[_location]-15-[_allDayCheckbox]"];
     [vfl :@"V:[_allDayCheckbox]-[_startDate]-[_endDate]-[_repPopup]-[_repEndPopup]-[_alertPopup]" :NSLayoutFormatAlignAllLeading];
     [vfl :@"V:[_addAlertButton(==_alertPopup)]-20-[_notesScrollView]-10-[_url]-15-[_saveButton]-|"];
+    [vfl :@"H:|-[_kindControl]-|"];
     [vfl :@"H:|-[_title]-[_calPopup]-|" :NSLayoutFormatAlignAllCenterY];
     [vfl :@"H:|-[_location]-|"];
     [vfl :@"H:|-[allDayLabel]-[_allDayCheckbox]-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|-[startsLabel]-[_startDate]-|" :NSLayoutFormatAlignAllBaseline];
-    [vfl :@"H:|-[endsLabel]-[_endDate]-|" :NSLayoutFormatAlignAllBaseline];
+    [vfl :@"H:|-[_startsLabel]-[_startDate]-|" :NSLayoutFormatAlignAllBaseline];
+    [vfl :@"H:|-[_endsLabel]-[_endDate]-|" :NSLayoutFormatAlignAllBaseline];
     [vfl :@"H:|-[repLabel]-[_repPopup]" :NSLayoutFormatAlignAllBaseline];
     [vfl :@"H:|-[_repEndLabel]-[_repEndPopup]-[_repEndDate]-|" :NSLayoutFormatAlignAllBaseline];
     [vfl :@"H:|-[alertLabel]-[_alertPopup]" :NSLayoutFormatAlignAllBaseline];
@@ -290,32 +293,20 @@ const NSUInteger kAlertMaxCount = 3;
     [vfl :@"H:|-[_url]-|"];
     [vfl :@"H:[cancelButton]-[_saveButton]-|" :NSLayoutFormatAlignAllCenterY];
     [_addAlertButton.widthAnchor constraintEqualToAnchor:_addAlertButton.heightAnchor].active = YES;
-    // End the Repeat popup where the Alert popups end, beside the add button.
     [_repPopup.trailingAnchor constraintEqualToAnchor:_alertPopup.trailingAnchor].active = YES;
     [self updateAddAlertButton];
-    
+
     // Get height of one line in _notes
     [_notes.layoutManager ensureLayoutForTextContainer:_notes.textContainer];
     _notesHeightOfOneLine = [_notes.layoutManager usedRectForTextContainer:_notes.textContainer].size.height;
 
-    // Set height of _notesScrollView to height of single line
     _notesScrollViewHeightConstraint = [_notesScrollView.heightAnchor constraintEqualToConstant:_notesHeightOfOneLine];
     _notesScrollViewHeightConstraint.active = YES;
 
-    // Require All-day checkbox height to hug the checkbox. Without this,
-    // the layout will look funny when the title is multi-line.
     [_allDayCheckbox setContentHuggingPriority:999 forOrientation:NSLayoutConstraintOrientationVertical];
-    
-    // Pickers' width will change depending on state of _allDayCheckbox.
-    // We don't want the size of the picker control to change (shrink)
-    // when this happens so we set a very low hugging priority.
     [_startDate setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
     [_endDate   setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    
-    // The popover has hasFullSizeContent=YES. Use the
-    // safeAreaLayoutGuide of a view that paints its background
-    // according to the Theme to inset our content. This paints
-    // the popover's full background, including the arrow.
+
     v.translatesAutoresizingMaskIntoConstraints = NO;
     MoThemeView *view = [MoThemeView new];
     [view addSubview:v];
@@ -328,56 +319,252 @@ const NSUInteger kAlertMaxCount = 3;
     self.view = view;
 }
 
+- (BOOL)isReminderMode
+{
+    if (self.editingItem) return self.editingItem.reminder != nil;
+    return _kindControl.selectedSegment == 1;
+}
+
+- (void)resetRepPopupItemsWithCustom:(BOOL)includeCustom
+{
+    [_repPopup removeAllItems];
+    NSArray<NSString *> *titles = @[
+        NSLocalizedString(@"None", @"Repeat none"),
+        NSLocalizedString(@"Every Day", @""),
+        NSLocalizedString(@"Every Week", @""),
+        [NSString stringWithFormat:NSLocalizedString(@"Every %zd Weeks", nil), (NSInteger)2],
+        NSLocalizedString(@"Every Month", @""),
+        NSLocalizedString(@"Every Year", @"")
+    ];
+    for (NSInteger i = 0; i < titles.count; i++) {
+        [_repPopup addItemWithTitle:titles[i]];
+        [_repPopup itemAtIndex:i].tag = i;
+    }
+    if (includeCustom) {
+        [_repPopup addItemWithTitle:NSLocalizedString(@"Custom", @"")];
+        _repPopup.lastItem.tag = kCustomRepeatTag;
+    }
+}
+
 - (void)viewWillAppear
 {
     [super viewWillAppear];
 
     self.view.window.defaultButtonCell = _saveButton.cell;
-    // Update the Tab order when alert rows are added or removed.
     self.view.window.autorecalculatesKeyViewLoop = YES;
-    
-    // If self.calSelectedDate is today, the initialStart is set to
-    // the next whole hour. Otherwise, 8am of self.calselectedDate.
-    // Default duration is same as setting in Calendar.app.
+
+    _recurrenceModified = NO;
+    _alarmsModified = NO;
+    _kindControl.hidden = (self.editingItem != nil);
+    if (!self.editingItem) {
+        _kindControl.selectedSegment = 0;
+    }
+
+    if (self.editingItem) {
+        [self populateFormForEditingItem:self.editingItem];
+    } else {
+        [self populateFormForNewItem];
+    }
+    [self updateModeVisibility];
+}
+
+- (void)updateModeVisibility
+{
+    BOOL reminder = [self isReminderMode];
+    _location.hidden = reminder;
+    _endsLabel.hidden = reminder;
+    _endDate.hidden = reminder;
+    _startsLabel.stringValue = reminder ? NSLocalizedString(@"Due:", @"") : NSLocalizedString(@"Starts:", @"");
+    _title.placeholderString = reminder ? NSLocalizedString(@"New Reminder", @"") : NSLocalizedString(@"New Event", @"");
+    if (self.editingItem) {
+        _saveButton.title = NSLocalizedString(@"Save", @"");
+    } else {
+        _saveButton.title = reminder ? NSLocalizedString(@"Save Reminder", @"") : NSLocalizedString(@"Save Event", @"");
+    }
+}
+
+- (void)kindChanged:(NSSegmentedControl *)sender
+{
+    if (sender.selectedSegment == 1 && self.ec.remindersAuthorizationStatus != EKAuthorizationStatusFullAccess) {
+        __weak typeof(self) weakSelf = self;
+        [self.ec requestRemindersAccessWithCompletion:^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (strongSelf.ec.remindersAuthorizationStatus != EKAuthorizationStatusFullAccess || ![strongSelf populateCalendarPopupForEntityMask:EKEntityMaskReminder selectedCalendarID:nil]) {
+                strongSelf->_kindControl.selectedSegment = 0;
+                [strongSelf populateCalendarPopupForEntityMask:EKEntityMaskEvent selectedCalendarID:nil];
+                [strongSelf updateModeVisibility];
+                return;
+            }
+            [strongSelf updateModeVisibility];
+            [strongSelf populateAlertPopup];
+        }];
+        return;
+    }
+    EKEntityMask mask = [self isReminderMode] ? EKEntityMaskReminder : EKEntityMaskEvent;
+    if (![self populateCalendarPopupForEntityMask:mask selectedCalendarID:nil] && [self isReminderMode]) {
+        NSAlert *alert = [NSAlert new];
+        alert.messageText = NSLocalizedString(@"No modifiable reminder list found. Enable Reminders in Settings › Events.", @"");
+        [alert runModal];
+        _kindControl.selectedSegment = 0;
+        [self populateCalendarPopupForEntityMask:EKEntityMaskEvent selectedCalendarID:nil];
+    }
+    [self updateModeVisibility];
+    [self populateAlertPopup];
+}
+
+- (void)populateFormForNewItem
+{
     NSDate *initialStart, *initialEnd, *today = [NSDate new];
     if ([self.cal isDate:self.calSelectedDate inSameDayAsDate:today]) {
         NSInteger hour;
         [self.cal getHour:&hour minute:NULL second:NULL nanosecond:NULL fromDate:today];
-        hour = (hour == 23) ? 0 : hour+1;
+        hour = (hour == 23) ? 0 : hour + 1;
         initialStart = [self.cal nextDateAfterDate:today matchingUnit:NSCalendarUnitHour value:hour options:NSCalendarMatchNextTimePreservingSmallerUnits];
     }
     else {
         initialStart = [self.cal dateBySettingHour:8 minute:0 second:0 ofDate:self.calSelectedDate options:0];
     }
     NSInteger newEventDuration = [self defaultDurationInMinutesForNewEvent];
+    _durationSeconds = newEventDuration * 60.0;
     initialEnd = [self.cal dateByAddingUnit:NSCalendarUnitMinute
                                       value:newEventDuration
                                      toDate:initialStart
                                     options:0];
-    
-    // Initial values for form fields.
+
     _title.stringValue = @"";
     _location.stringValue = @"";
     _url.stringValue = @"";
     _notes.string = @"";
+    [self textDidChange:[NSNotification notificationWithName:NSTextDidChangeNotification object:_notes]];
     _allDayCheckbox.state = NSControlStateValueOff;
     _startDate.datePickerElements = NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute;
     _endDate.datePickerElements   = NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute;
     _startDate.dateValue = initialStart;
-    _endDate.minDate     = initialStart; // !! Must set minDate before dateValue !!
+    _endDate.minDate     = initialStart;
     _endDate.dateValue   = initialEnd;
     _repEndLabel.hidden  = YES;
     _repEndPopup.hidden  = YES;
     _repEndDate.hidden   = YES;
     _repEndDate.minDate  = initialStart;
     _repEndDate.dateValue = initialEnd;
-    [_repPopup selectItemAtIndex:0];     // 'None' selected
-    [_repEndPopup selectItemAtIndex:0];  // 'Never' selected
-    [_alertPopup selectItemAtIndex:0];   // 'None' selected
+    [self resetRepPopupItemsWithCustom:NO];
+    [_repPopup selectItemAtIndex:0];
+    [_repEndPopup selectItemAtIndex:0];
+    [_alertPopup selectItemAtIndex:0];
     _defaultAlertKept = YES;
-    _saveButton.enabled  = NO;
-    
-    // Function to make colored dots for calendar popup.
+    _saveButton.enabled = NO;
+
+    [self populateCalendarPopupForEntityMask:EKEntityMaskEvent selectedCalendarID:[self.ec defaultCalendarIdentifier]];
+    [self populateAlertPopup];
+}
+
+- (void)populateFormForEditingItem:(EventInfo *)info
+{
+    EKCalendarItem *item = info.item;
+    BOOL isAllDay = info.isRealAllDay;
+    NSDate *start = info.startDate ?: [NSDate new];
+    NSDate *end = info.endDate ?: start;
+    if ([end compare:start] == NSOrderedAscending) end = start;
+    _durationSeconds = [end timeIntervalSinceDate:start];
+
+    _title.stringValue = item.title ?: @"";
+    _location.stringValue = info.location ?: @"";
+    _url.stringValue = item.URL.absoluteString ?: @"";
+    _notes.string = item.notes ?: @"";
+    [self textDidChange:[NSNotification notificationWithName:NSTextDidChangeNotification object:_notes]];
+
+    _allDayCheckbox.state = isAllDay ? NSControlStateValueOn : NSControlStateValueOff;
+    NSDatePickerElementFlags flags = isAllDay
+        ? NSDatePickerElementFlagYearMonthDay
+        : (NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute);
+    _startDate.datePickerElements = flags;
+    _endDate.datePickerElements   = flags;
+    _startDate.dateValue = start;
+    _endDate.minDate     = start;
+    _endDate.dateValue   = end;
+    _repEndDate.minDate  = start;
+    _repEndDate.dateValue = end;
+
+    EKEntityMask mask = info.reminder ? EKEntityMaskReminder : EKEntityMaskEvent;
+    [self populateCalendarPopupForEntityMask:mask selectedCalendarID:item.calendar.calendarIdentifier];
+
+    // Recurrence
+    EKRecurrenceRule *rule = item.recurrenceRules.firstObject;
+    NSInteger repTag = [self repeatTagForRule:rule];
+    [self resetRepPopupItemsWithCustom:(repTag == kCustomRepeatTag)];
+    [_repPopup selectItemWithTag:repTag];
+    if (repTag == 0 || repTag == kCustomRepeatTag) {
+        [_repEndPopup selectItemAtIndex:0];
+        _repEndLabel.hidden = YES;
+        _repEndPopup.hidden = YES;
+        _repEndDate.hidden  = YES;
+    } else {
+        _repEndLabel.hidden = NO;
+        _repEndPopup.hidden = NO;
+        if (rule.recurrenceEnd.endDate != nil) {
+            [_repEndPopup selectItemAtIndex:1];
+            _repEndDate.dateValue = rule.recurrenceEnd.endDate;
+            _repEndDate.hidden = NO;
+        } else {
+            [_repEndPopup selectItemAtIndex:0];
+            _repEndDate.hidden = YES;
+        }
+    }
+
+    // Alerts
+    [self populateAlertPopup];
+    _defaultAlertIndex = 0;
+    _defaultAlertKept = NO;
+    NSMutableArray<NSNumber *> *matchedIndexes = [NSMutableArray new];
+    NSInteger numOffsets = isAllDay ? kAlertAllDayNumOffsets : kAlertRegularNumOffsets;
+    const NSTimeInterval *offsets = isAllDay ? kAlertAllDayRelativeOffsets : kAlertRegularRelativeOffsets;
+    for (EKAlarm *alarm in item.alarms) {
+        NSTimeInterval offset = alarm.relativeOffset;
+        if (alarm.absoluteDate != nil) {
+            offset = [alarm.absoluteDate timeIntervalSinceDate:start];
+        }
+        for (NSInteger i = 1; i < numOffsets; i++) {
+            if (fabs(offset - offsets[i]) < 1.0 && ![matchedIndexes containsObject:@(i)]) {
+                [matchedIndexes addObject:@(i)];
+                break;
+            }
+        }
+    }
+    [self showAlertIndexes:matchedIndexes.count > 0 ? matchedIndexes : @[@0]];
+    _alarmsModified = NO;
+
+    NSString *trimmedTitle = [_title.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    _saveButton.enabled = trimmedTitle.length > 0;
+}
+
+- (NSInteger)repeatTagForRule:(EKRecurrenceRule *)rule
+{
+    if (rule == nil) return 0;
+    if (rule.daysOfTheWeek.count > 1 ||
+        rule.daysOfTheMonth.count > 0 ||
+        rule.monthsOfTheYear.count > 0 ||
+        rule.weeksOfTheYear.count > 0 ||
+        rule.daysOfTheYear.count > 0 ||
+        rule.setPositions.count > 0 ||
+        rule.recurrenceEnd.occurrenceCount > 0) {
+        return kCustomRepeatTag;
+    }
+    if (rule.frequency == EKRecurrenceFrequencyDaily && rule.interval == 1) return 1;
+    if (rule.frequency == EKRecurrenceFrequencyWeekly && rule.interval == 1) return 2;
+    if (rule.frequency == EKRecurrenceFrequencyWeekly && rule.interval == 2) return 3;
+    if (rule.frequency == EKRecurrenceFrequencyMonthly && rule.interval == 1) return 4;
+    if (rule.frequency == EKRecurrenceFrequencyYearly && rule.interval == 1) return 5;
+    return kCustomRepeatTag;
+}
+
+- (BOOL)populateCalendarPopupForEntityMask:(EKEntityMask)entityMask selectedCalendarID:(NSString *)selectedID
+{
+    if (selectedID == nil) {
+        selectedID = (entityMask == EKEntityMaskReminder)
+            ? [self.ec defaultReminderCalendarIdentifier]
+            : [self.ec defaultCalendarIdentifier];
+    }
     NSImage* (^coloredDot)(NSColor *) = ^NSImage* (NSColor *color) {
         return [NSImage imageWithSize:NSMakeSize(8, 8) flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
             [color set];
@@ -385,26 +572,22 @@ const NSUInteger kAlertMaxCount = 3;
             return YES;
         }];
     };
-    
-    // Populate calendar popup.
-    NSString *defaultCalendarIdentifier = [self.ec defaultCalendarIdentifier];
+
     NSArray *sourcesAndCalendars = [self.ec sourcesAndCalendars];
     EKSource *currentSource = nil;
     [_calPopup.menu removeAllItems];
+    NSInteger firstTag = NSNotFound;
+    BOOL matchedSelected = NO;
     for (id obj in sourcesAndCalendars) {
-        if ([obj isKindOfClass:[NSString class]]) continue; // Skip Sources
+        if ([obj isKindOfClass:[NSString class]]) continue;
         CalendarInfo *calInfo = obj;
-        // Only add menu items for calendars that can be modified
-        // and hold events (not reminder lists).
         if (calInfo.calendar.allowsContentModifications &&
-            (calInfo.calendar.allowedEntityTypes & EKEntityMaskEvent)) {
-            // Add a Source item to the menu if necessary.
+            (calInfo.calendar.allowedEntityTypes & entityMask)) {
             if (![calInfo.calendar.source isEqualTo:currentSource]) {
                 if (_calPopup.menu.itemArray.count != 0) {
                     [_calPopup.menu addItem:[NSMenuItem separatorItem]];
                 }
                 NSMenuItem *sourceItem = [NSMenuItem new];
-                // MacOS 13 sometimes returns nil for non-iCloud source titles.
                 sourceItem.title   = calInfo.calendar.source.title ?: @"???";
                 sourceItem.enabled = NO;
                 [_calPopup.menu addItem:sourceItem];
@@ -416,46 +599,42 @@ const NSUInteger kAlertMaxCount = 3;
             calItem.tag   = [sourcesAndCalendars indexOfObject:obj];
             calItem.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
             [_calPopup.menu addItem:calItem];
-            if ([calInfo.calendar.calendarIdentifier isEqualToString:defaultCalendarIdentifier]) {
+            if (firstTag == NSNotFound) firstTag = calItem.tag;
+            if (selectedID && [calInfo.calendar.calendarIdentifier isEqualToString:selectedID]) {
                 [_calPopup selectItemWithTag:calItem.tag];
+                matchedSelected = YES;
             }
         }
     }
-    
-    // Populate alert popup AFTER calendar popup since its
-    // contents depends on which calendar is selected.
-    [self populateAlertPopup];
+    if (!matchedSelected && firstTag != NSNotFound) {
+        [_calPopup selectItemWithTag:firstTag];
+    }
+    return firstTag != NSNotFound;
 }
 
 - (NSInteger)defaultDurationInMinutesForNewEvent {
     NSUserDefaults *calendarDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.apple.iCal"];
     NSNumber *durationMinutes = [calendarDefaults objectForKey:@"Default duration in minutes for new event"];
-
-    // Check if the value was found.
     if (durationMinutes != nil) {
         return [durationMinutes longValue];
     }
-    // Return the system default (60 minutes) if the
-    // setting isn't explicitly defined.
     return 60;
 }
 
 - (void)cancelOperation:(id)sender
 {
-    // User hit 'esc' or pressed Cancel button.
     [self.enclosingPopover close];
 }
 
 - (void)controlTextDidChange:(NSNotification *)obj
 {
-    // Enable the Save button if the title is non-whitespace.
     NSString *trimmedTitle = [_title.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     _saveButton.enabled = ![trimmedTitle isEqualToString:@""];
 }
 
 - (void)allDayClicked:(NSButton *)allDayCheckbox
 {
-    // The All-day checkbox toggles the hour/minute controls of the date pickers.
+    _alarmsModified = YES;
     if (allDayCheckbox.state == NSControlStateValueOn) {
         _startDate.datePickerElements = NSDatePickerElementFlagYearMonthDay;
         _endDate.datePickerElements = NSDatePickerElementFlagYearMonthDay;
@@ -464,8 +643,7 @@ const NSUInteger kAlertMaxCount = 3;
         _startDate.datePickerElements = NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute;
         _endDate.datePickerElements = NSDatePickerElementFlagYearMonthDay | NSDatePickerElementFlagHourMinute;
     }
-    
-    // All-day events have different alert options from regular events.
+
     const NSInteger *indexes = allDayCheckbox.state == NSControlStateValueOn ? kAlertAllDayIndexForRegular : kAlertRegularIndexForAllDay;
     NSMutableOrderedSet<NSNumber *> *alertIndexes = [NSMutableOrderedSet new];
     for (NSNumber *alertIndex in [self alertIndexesWithoutDefault]) {
@@ -478,39 +656,44 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)startDateChanged:(NSDatePicker *)startPicker
 {
-    // Make sure endDate is never before startDate.
-    // Make sure repeatEndDate is never before endDate.
-    // Default duration is same as setting in Calendar.app.
-    NSInteger newEventDuration = [self defaultDurationInMinutesForNewEvent];
     _endDate.minDate    = _startDate.dateValue;
     _repEndDate.minDate = _startDate.dateValue;
-    _endDate.dateValue = [self.cal dateByAddingUnit:NSCalendarUnitMinute
-                                              value:newEventDuration
-                                             toDate:_startDate.dateValue
-                                            options:0];
+    _endDate.dateValue  = [_startDate.dateValue dateByAddingTimeInterval:MAX(0, _durationSeconds)];
+}
+
+- (void)endDateChanged:(NSDatePicker *)endPicker
+{
+    _durationSeconds = MAX(0, [_endDate.dateValue timeIntervalSinceDate:_startDate.dateValue]);
+}
+
+- (void)repEndDateChanged:(NSDatePicker *)repEndPicker
+{
+    _recurrenceModified = YES;
 }
 
 - (void)repPopupChanged:(id)sender
 {
-    NSInteger repIndex = [_repPopup indexOfItem:_repPopup.selectedItem];
+    _recurrenceModified = YES;
+    NSInteger repTag = _repPopup.selectedItem.tag;
     NSInteger repEndIndex = [_repEndPopup indexOfItem:_repEndPopup.selectedItem];
-    if (repIndex == 0) {
+    if (repTag == 0 || repTag == kCustomRepeatTag) {
         [_repEndPopup selectItemAtIndex:0];
     }
-    _repEndLabel.hidden = repIndex == 0;
-    _repEndPopup.hidden = repIndex == 0;
-    _repEndDate.hidden  = repIndex == 0 || repEndIndex == 0;
+    BOOL showEnd = (repTag > 0);
+    _repEndLabel.hidden = !showEnd;
+    _repEndPopup.hidden = !showEnd;
+    _repEndDate.hidden  = !showEnd || repEndIndex == 0;
 }
 
 - (void)repEndPopupChanged:(id)sender
 {
+    _recurrenceModified = YES;
     NSInteger repEndIndex = [_repEndPopup indexOfItem:_repEndPopup.selectedItem];
     _repEndDate.hidden = repEndIndex == 0;
 }
 
 - (void)calPopupChanged:(id)sender
 {
-    // Different calendars have different alert options.
     NSArray<NSNumber *> *alertIndexes = [self alertIndexesWithoutDefault];
     [self populateAlertPopup];
     [self showAlertIndexesWithDefault:alertIndexes];
@@ -519,7 +702,7 @@ const NSUInteger kAlertMaxCount = 3;
 - (void)populateAlertPopup
 {
     [_alertPopup removeAllItems];
-    
+
     NSInteger numOffsets = 0;
     const NSTimeInterval *offsets = nil;
 
@@ -535,18 +718,25 @@ const NSUInteger kAlertMaxCount = 3;
 
     [_alertPopup selectItemAtIndex:0];
 
-    // Get the selected calendar.
+    if (_calPopup.selectedItem == nil || [self isReminderMode]) {
+        _defaultAlertIndex = 0;
+        [self showAlertIndexes:@[@0]];
+        return;
+    }
+
     NSInteger index = _calPopup.selectedItem.tag;
     NSArray *sourcesAndCalendars = [self.ec sourcesAndCalendars];
+    if (index < 0 || index >= (NSInteger)sourcesAndCalendars.count || ![sourcesAndCalendars[index] isKindOfClass:[CalendarInfo class]]) {
+        _defaultAlertIndex = 0;
+        [self showAlertIndexes:@[@0]];
+        return;
+    }
     CalendarInfo *calInfo = sourcesAndCalendars[index];
 
-    // Make a dummy event for the selected calendar in order to get
-    // the default alert time offset.
     EKEvent *dummyEvent  = [self.ec newEvent];
     dummyEvent.calendar  = calInfo.calendar;
     dummyEvent.allDay    = _allDayCheckbox.state == NSControlStateValueOn;
 
-    // If the dummy event has an alert, try to set it as the default.
     if (dummyEvent.alarms.count > 0) {
         for (NSInteger i = 0; i < numOffsets; i++) {
             if (dummyEvent.alarms.firstObject.relativeOffset == offsets[i]) {
@@ -580,8 +770,6 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)updateAlertItems
 {
-    // Disable alerts selected in other rows so an alert can't be
-    // selected twice. 'None' and the row's own alert stay enabled.
     NSArray<NSNumber *> *alertIndexes = [self alertIndexes];
     for (NSPopUpButton *alertPopup in _alertPopups) {
         NSInteger selectedIndex = [alertPopup indexOfItem:alertPopup.selectedItem];
@@ -593,15 +781,12 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)addAlertClicked:(id)sender
 {
-    // The add button only shows when every row has an alert and
-    // there's room for another, so this adds a row set to 'None'.
+    _alarmsModified = YES;
     [self showAlertIndexes:[[self alertIndexes] arrayByAddingObject:@0]];
 }
 
 - (void)addAlertRow
 {
-    // Add a row below the last one, set up like the first row
-    // in -loadView, with 'None' selected.
     NSView *v = _alertPopup.superview;
     NSPopUpButton *lastPopup = _alertPopups.lastObject;
     NSTextField *alertLabel = [NSTextField labelWithString:NSLocalizedString(@"Alert:", @"")];
@@ -622,7 +807,7 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)alertPopupChanged:(id)sender
 {
-    // Sort like Calendar.app, with at most one 'None', at the end.
+    _alarmsModified = YES;
     NSMutableArray<NSNumber *> *alertIndexes = [self alertIndexes];
     [alertIndexes sortUsingSelector:@selector(compare:)];
     if (alertIndexes.count < _alertPopups.count) {
@@ -636,8 +821,6 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (NSMutableArray<NSNumber *> *)alertIndexes
 {
-    // The selected alerts, each once, without 'None'. (Alerts
-    // selected in other rows are disabled; see -updateAlertItems.)
     NSMutableOrderedSet<NSNumber *> *alertIndexes = [NSMutableOrderedSet new];
     for (NSPopUpButton *alertPopup in _alertPopups) {
         [alertIndexes addObject:@([alertPopup indexOfItem:alertPopup.selectedItem])];
@@ -658,15 +841,11 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)showAlertIndexesWithDefault:(NSArray<NSNumber *> *)alertIndexes
 {
-    // Add the new default alert if the user kept the old one.
     if (_defaultAlertKept && _defaultAlertIndex > 0) {
         if (alertIndexes.count < kAlertMaxCount && ![alertIndexes containsObject:@(_defaultAlertIndex)]) {
             alertIndexes = [alertIndexes arrayByAddingObject:@(_defaultAlertIndex)];
         }
         else {
-            // No default was added: the rows are full, or the user already
-            // selected the same alert. Don't treat a user-selected alert
-            // as the default just because the times match.
             _defaultAlertIndex = 0;
         }
     }
@@ -675,115 +854,163 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (void)updateAddAlertButton
 {
-    // Keep the add button beside the last row. The notes follow it.
-    // Hide it if the last row is set to 'None' or the row limit is reached.
     NSPopUpButton *lastPopup = _alertPopups.lastObject;
     _addAlertButtonTopConstraint.active = NO;
     _addAlertButtonTopConstraint = [_addAlertButton.topAnchor constraintEqualToAnchor:lastPopup.topAnchor];
     _addAlertButtonTopConstraint.active = YES;
     BOOL hidden = _alertPopups.count >= kAlertMaxCount || [lastPopup indexOfItem:lastPopup.selectedItem] == 0;
-    // Move focus from the add button to the last row before hiding the button.
     if (hidden && _addAlertButton.window.firstResponder == _addAlertButton) {
         [_addAlertButton.window makeFirstResponder:lastPopup];
     }
     _addAlertButton.hidden = hidden;
 }
 
-- (void)saveEvent:(id)sender
+- (EKRecurrenceRule *)selectedRecurrenceRule
 {
-    // Set startDate and endDate.
-    NSDate *startDate = _startDate.dateValue;
-    NSDate *endDate   = _endDate.dateValue;
-    
-    // Get the calendar.
-    NSInteger index = _calPopup.selectedItem.tag;
-    NSArray *sourcesAndCalendars = [self.ec sourcesAndCalendars];
-    CalendarInfo *calInfo = sourcesAndCalendars[index];
-
-    // Create the event.
-    NSCharacterSet *whitespaceSet = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-    EKEvent *event  = [self.ec newEvent];
-    event.title     = [_title.stringValue stringByTrimmingCharactersInSet:whitespaceSet];
-    event.location  = [_location.stringValue stringByTrimmingCharactersInSet:whitespaceSet];
-    event.URL       = [NSURL URLWithString:[_url.stringValue stringByTrimmingCharactersInSet:whitespaceSet]];
-    event.allDay    = _allDayCheckbox.state == NSControlStateValueOn;
-    event.startDate = startDate;
-    event.endDate   = endDate;
-    event.calendar  = calInfo.calendar;
-    NSString *notes = [_notes.string stringByTrimmingCharactersInSet:whitespaceSet];
-    if (![notes isEqualToString:@""]) {
-        event.notes = notes;
-    }
-    // !Important! timeZone MUST be nil if it is an allDay event.
-    // If you set timeZone after setting allDay, the start and end dates
-    // will be wrong and it won't be an allDay event anymore.
-    // Alternatively, we could have set timeZone before setting allDay
-    // because setting allDay == YES sets timeZone to nil.
-    event.timeZone  = event.isAllDay ? nil : [NSTimeZone localTimeZone];
-    
-    // Recurrence rule.
-    EKRecurrenceFrequency frequency;
+    NSInteger repTag = _repPopup.selectedItem.tag;
+    if (repTag <= 0) return nil;
+    EKRecurrenceFrequency frequency = EKRecurrenceFrequencyDaily;
     NSInteger interval = 1;
-    NSInteger repIndex = [_repPopup indexOfItem:_repPopup.selectedItem];
-    switch (repIndex) {
-        case 1: // Every Day
-            frequency = EKRecurrenceFrequencyDaily;
-            break;
-        case 2: // Every Week
-            frequency = EKRecurrenceFrequencyWeekly;
-            break;
-        case 3: // Every 2 Weeks
-            frequency = EKRecurrenceFrequencyWeekly;
-            interval  = 2;
-            break;
-        case 4: // Every Month
-            frequency = EKRecurrenceFrequencyMonthly;
-            break;
-        case 5: // Every Year
-            frequency = EKRecurrenceFrequencyYearly;
-            break;
-        default:
-            frequency = EKRecurrenceFrequencyDaily;
-            break;
+    switch (repTag) {
+        case 1: frequency = EKRecurrenceFrequencyDaily; break;
+        case 2: frequency = EKRecurrenceFrequencyWeekly; break;
+        case 3: frequency = EKRecurrenceFrequencyWeekly; interval = 2; break;
+        case 4: frequency = EKRecurrenceFrequencyMonthly; break;
+        case 5: frequency = EKRecurrenceFrequencyYearly; break;
+        default: return nil;
     }
-    EKRecurrenceEnd  *recurrenceEnd = nil;
-    NSInteger repEndIndex = [_repEndPopup indexOfItem:_repEndPopup.selectedItem];
-    if (repEndIndex != 0) {
+    EKRecurrenceEnd *recurrenceEnd = nil;
+    if ([_repEndPopup indexOfItem:_repEndPopup.selectedItem] != 0) {
         recurrenceEnd = [EKRecurrenceEnd recurrenceEndWithEndDate:_repEndDate.dateValue];
     }
-    EKRecurrenceRule *recurrence = nil;
-    if (repIndex != 0) {
-        recurrence = [[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:recurrenceEnd];
+    return [[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:recurrenceEnd];
+}
+
+- (void)fillItem:(EKCalendarItem *)item updateRecurrence:(BOOL)updateRecurrence updateAlarms:(BOOL)updateAlarms
+{
+    NSDate *startDate = _startDate.dateValue;
+    NSDate *endDate   = _endDate.dateValue;
+    BOOL isAllDay     = _allDayCheckbox.state == NSControlStateValueOn;
+
+    NSInteger index = _calPopup.selectedItem.tag;
+    NSArray *sourcesAndCalendars = [self.ec sourcesAndCalendars];
+    CalendarInfo *calInfo = (index >= 0 && index < (NSInteger)sourcesAndCalendars.count && [sourcesAndCalendars[index] isKindOfClass:[CalendarInfo class]])
+        ? sourcesAndCalendars[index]
+        : nil;
+
+    NSCharacterSet *whitespaceSet = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    item.title = [_title.stringValue stringByTrimmingCharactersInSet:whitespaceSet];
+    if (calInfo.calendar) item.calendar = calInfo.calendar;
+    NSString *urlText = [_url.stringValue stringByTrimmingCharactersInSet:whitespaceSet];
+    item.URL = urlText.length > 0 ? [NSURL URLWithString:urlText] : nil;
+    NSString *notes = [_notes.string stringByTrimmingCharactersInSet:whitespaceSet];
+    item.notes = notes.length > 0 ? notes : nil;
+
+    if ([item isKindOfClass:[EKEvent class]]) {
+        EKEvent *event = (EKEvent *)item;
+        NSString *loc = [_location.stringValue stringByTrimmingCharactersInSet:whitespaceSet];
+        event.location  = loc.length > 0 ? loc : nil;
+        event.allDay    = isAllDay;
+        event.startDate = startDate;
+        event.endDate   = [endDate compare:startDate] == NSOrderedAscending ? startDate : endDate;
+        event.timeZone  = isAllDay ? nil : (event.timeZone ?: [NSTimeZone localTimeZone]);
     }
-    if (recurrence != nil) {
-        event.recurrenceRules = @[recurrence];
-    }
-    
-    // Remove default alert(s) set on this event. We only add the
-    // alerts the user has selected - which may include the default
-    // alert since we tried to set it in -populateAlertPopup. This
-    // avoids having the default alert set twice.
-    for (EKAlarm *alarm in event.alarms) {
-        [event removeAlarm:alarm];
-    }
-    // Set the alerts that were selected in the alert popups.
-    for (NSNumber *alertIndexNumber in [self alertIndexes]) {
-        NSInteger alertIndex = alertIndexNumber.integerValue;
-        NSTimeInterval offset = MAXFLOAT;
-        if (event.isAllDay && alertIndex < kAlertAllDayNumOffsets) {
-            offset = kAlertAllDayRelativeOffsets[alertIndex];
+    else if ([item isKindOfClass:[EKReminder class]]) {
+        EKReminder *reminder = (EKReminder *)item;
+        NSCalendarUnit units = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay;
+        if (!isAllDay) {
+            units |= (NSCalendarUnitHour | NSCalendarUnitMinute);
         }
-        else if (!event.isAllDay && alertIndex < kAlertRegularNumOffsets) {
-            offset = kAlertRegularRelativeOffsets[alertIndex];
-        }
-        if (offset != MAXFLOAT) {
-            [event addAlarm:[EKAlarm alarmWithRelativeOffset:offset]];
+        NSDateComponents *dueComp = [self.cal components:units fromDate:startDate];
+        dueComp.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+        if (!isAllDay) dueComp.timeZone = [NSTimeZone localTimeZone];
+        reminder.dueDateComponents = dueComp;
+        if (updateRecurrence && [self selectedRecurrenceRule] != nil) {
+            reminder.startDateComponents = [dueComp copy];
         }
     }
-    
-    // Commit the event.
-    NSError *error = NULL;
-    BOOL saved = [self.ec saveNewEvent:event undoManager:self.eventUndoManager error:&error];
+
+    if (updateRecurrence && _repPopup.selectedItem.tag != kCustomRepeatTag) {
+        EKRecurrenceRule *rule = [self selectedRecurrenceRule];
+        item.recurrenceRules = rule ? @[rule] : nil;
+    }
+
+    if (updateAlarms) {
+        for (EKAlarm *alarm in [item.alarms copy]) {
+            [item removeAlarm:alarm];
+        }
+        for (NSNumber *alertIndexNumber in [self alertIndexes]) {
+            NSInteger alertIndex = alertIndexNumber.integerValue;
+            NSTimeInterval offset = MAXFLOAT;
+            if (isAllDay && alertIndex < kAlertAllDayNumOffsets) {
+                offset = kAlertAllDayRelativeOffsets[alertIndex];
+            }
+            else if (!isAllDay && alertIndex < kAlertRegularNumOffsets) {
+                offset = kAlertRegularRelativeOffsets[alertIndex];
+            }
+            if (offset != MAXFLOAT) {
+                if ([item isKindOfClass:[EKReminder class]]) {
+                    NSDate *base = isAllDay ? [self.cal startOfDayForDate:startDate] : startDate;
+                    [item addAlarm:[EKAlarm alarmWithAbsoluteDate:[base dateByAddingTimeInterval:offset]]];
+                } else {
+                    [item addAlarm:[EKAlarm alarmWithRelativeOffset:offset]];
+                }
+            }
+        }
+    }
+}
+
+- (void)saveEvent:(id)sender
+{
+    NSError *error = nil;
+    BOOL saved = NO;
+
+    if (self.editingItem != nil) {
+        EKCalendarItem *target = self.editingItem.item;
+        if (target == nil || ![target refresh]) {
+            [self.enclosingPopover close];
+            return;
+        }
+        EKSpan span = EKSpanThisEvent;
+        if (self.editingItem.event != nil && self.editingItem.event.hasRecurrenceRules) {
+            if (_recurrenceModified) {
+                span = EKSpanFutureEvents;
+            } else {
+                NSAlert *alert = [NSAlert new];
+                alert.messageText = NSLocalizedString(@"You’re changing a repeating event.", @"");
+                alert.informativeText = NSLocalizedString(@"Do you want to save the changes for this event only, or for all future events?", @"");
+                [alert addButtonWithTitle:NSLocalizedString(@"Save for This Event Only", @"")];
+                [alert addButtonWithTitle:NSLocalizedString(@"Save for Future Events", @"")];
+                [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"")];
+                NSModalResponse response = [alert runModal];
+                if (response == NSAlertThirdButtonReturn) return;
+                span = (response == NSAlertSecondButtonReturn) ? EKSpanFutureEvents : EKSpanThisEvent;
+            }
+        }
+        saved = [self.ec updateItem:target span:span changes:^(EKCalendarItem *item) {
+            [self fillItem:item updateRecurrence:self->_recurrenceModified updateAlarms:self->_alarmsModified];
+        } undoManager:self.eventUndoManager error:&error];
+    }
+    else if ([self isReminderMode]) {
+        EKReminder *reminder = [self.ec newReminder];
+        [self fillItem:reminder updateRecurrence:YES updateAlarms:YES];
+        saved = [self.ec applyBatchChangesWithAddedEvents:@[]
+                                           addedReminders:@[reminder]
+                                            deletedEvents:@[]
+                                        deletedEventSpans:@[]
+                                         deletedReminders:@[]
+                                              undoManager:self.eventUndoManager
+                                                    error:&error];
+        if (saved && reminder.calendar.calendarIdentifier) {
+            [self.ec updateSelectedCalendarsForIdentifier:reminder.calendar.calendarIdentifier selected:YES];
+        }
+    }
+    else {
+        EKEvent *event = [self.ec newEvent];
+        [self fillItem:event updateRecurrence:YES updateAlarms:YES];
+        saved = [self.ec saveNewEvent:event undoManager:self.eventUndoManager error:&error];
+    }
+
     if (saved == NO && error != nil) {
         [[NSAlert alertWithError:error] runModal];
     }
@@ -797,17 +1024,12 @@ const NSUInteger kAlertMaxCount = 3;
 
 - (BOOL)textView:(NSTextView *)aTextView doCommandBySelector:(SEL)aSelector
 {
-    // _notes textview handles Tab/Backtab like other controls
-    // by navigating to next/previous control.
-    // https://stackoverflow.com/a/2485987/111418
     if (aTextView != _notes) return NO;
     if (aSelector == @selector(insertTab:)) {
         [_notes.window makeFirstResponder:_url];
         return YES;
     }
     else if (aSelector == @selector(insertBacktab:)) {
-        // The key view before the notes can change as alert rows are added
-        // or removed.
         [_notes.window selectKeyViewPrecedingView:_notes];
         return YES;
     }
@@ -818,31 +1040,21 @@ const NSUInteger kAlertMaxCount = 3;
 {
     if (notification.object != _notes) return;
 
-    // _notesScrollView will grow to at most this many lines
-    // after which it will scroll.
     NSInteger maxVisibleLines = 16;
 
-    // Get height of text in _notes
     [_notes.layoutManager ensureLayoutForTextContainer:_notes.textContainer];
     CGFloat height = [_notes.layoutManager usedRectForTextContainer:_notes.textContainer].size.height;
-    
-    // Grow _notesScrollView to at most maxVisibleLines * _notesHeightOfOneLine
+
     height = MIN(height, maxVisibleLines * _notesHeightOfOneLine);
-    _notesScrollViewHeightConstraint.constant = height;
-    
-    // Get number of lines in _notes
-    // https://macosx-dev.omnigroup.narkive.com/RH9lsO7P/number-of-lines-in-nstextview#post2
+    _notesScrollViewHeightConstraint.constant = MAX(height, _notesHeightOfOneLine);
+
     NSInteger numberOfLines, idx, numberOfGlyphs = [_notes.layoutManager numberOfGlyphs];
     NSRange lineRange;
     for (numberOfLines = 0, idx = 0; idx < numberOfGlyphs; numberOfLines++) {
         (void)[_notes.layoutManager lineFragmentRectForGlyphAtIndex:idx effectiveRange:&lineRange];
         idx = NSMaxRange(lineRange);
     }
-    
-    // Elasticity and a scroller only if not all lines are visible.
-    // Not autohiding: it would show the scroller for a moment each
-    // time _notes grows, before _notesScrollView does. The scroller
-    // changes the text's width, so measure again when it changes.
+
     BOOL scrolls = numberOfLines > maxVisibleLines;
     _notesScrollView.verticalScrollElasticity = scrolls ? NSScrollElasticityAutomatic : NSScrollElasticityNone;
     if (_notesScrollView.hasVerticalScroller != scrolls) {

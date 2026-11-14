@@ -62,6 +62,14 @@
 - (NSArray<EKEvent *> *)eventsFromDate:(NSDate *)startDate toDate:(NSDate *)endDate;
 - (NSArray<EKReminder *> *)allIncompleteReminders;
 
+// Apply changes to an existing event or reminder, save it, and register
+// undo/redo with undoManager.
+- (BOOL)updateItem:(EKCalendarItem *)item
+              span:(EKSpan)span
+           changes:(void (^)(EKCalendarItem *target))changes
+       undoManager:(NSUndoManager *)undoManager
+             error:(NSError **)error;
+
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error;
 
 // Check off or uncheck a reminder and register its undo and redo
@@ -176,6 +184,9 @@
 // The event is an all-day event, or the reminder is due without a
 // time. Unlike isAllDay, NO for a timed event spanning this date.
 @property (nonatomic, readonly) BOOL isRealAllDay;
+// The item's calendar is writable and this is not a repeating reminder's
+// future occurrence.
+@property (nonatomic, readonly) BOOL isEditable;
 @property (nonatomic) BOOL isStartDate; // event starts, but doesn't end, on this date
 @property (nonatomic) BOOL isEndDate;   // event ends, but doesn't start, on this date
 @property (nonatomic) BOOL isAllDay;    // event is all-day, or spans across this date,
@@ -193,3 +204,4 @@ NSURL *AppLinkForMeetingURL(NSURL *meetingURL);
 // Is reminder due at dueDate (which may be nil, for no due date)?
 // dueDate is as in EventInfo: the start of the day if no time.
 BOOL ReminderIsDue(EKReminder *reminder, NSDate *dueDate);
+NSDate *DueDateForReminder(EKReminder *reminder, BOOL *hasTime, NSCalendar **calendar);

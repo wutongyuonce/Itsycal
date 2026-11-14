@@ -8,7 +8,7 @@
 
 #import <Cocoa/Cocoa.h>
 
-@class EventCenter;
+@class EventCenter, EventInfo;
 
 @interface EventViewController : NSViewController <NSTextFieldDelegate, NSTextViewDelegate>
 
@@ -19,5 +19,7 @@
 // The Itsycal window's undo manager. Saving registers undo here
 // so ⌘Z works after the popover closes.
 @property (nonatomic, weak) NSUndoManager *eventUndoManager;
+// Non-nil when editing an existing event or reminder from the agenda.
+@property (nonatomic) EventInfo *editingItem;
 
 @end

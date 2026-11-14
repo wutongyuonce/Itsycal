@@ -42,13 +42,15 @@
 @property (nonatomic) NSInteger count;
 @end
 
-@class EKEvent, EKReminder;
+@class EKEvent, EKReminder, EventInfo;
 
 @protocol AgendaDelegate <NSObject>
 
 @optional
 - (void)agendaHoveredOverRow:(NSInteger)row;
+- (void)agendaWantsToEditItem:(EventInfo *)info;
 - (void)agendaWantsToDeleteEvent:(EKEvent *)event;
+- (void)agendaWantsToDeleteReminder:(EKReminder *)reminder;
 - (void)agendaWantsToSetReminder:(EKReminder *)reminder completed:(BOOL)completed;
 - (void)agendaWantsToToggleOverdueSection;
 - (void)agendaShowCalendarAppAtDate:(NSDate *)date;

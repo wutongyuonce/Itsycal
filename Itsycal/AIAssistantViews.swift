@@ -298,7 +298,6 @@ final class AIAssistantViewModel: ObservableObject {
         }
         let rawExisting = hostDelegate?.aiExistingItems() ?? []
         let existing = rawExisting.map { Self.mapExistingItem($0) }
-        weak var weakDelegate = hostDelegate
         return AICodeModeHostContext(
             now: Date(),
             selectedDate: selectedDate,
@@ -306,8 +305,8 @@ final class AIAssistantViewModel: ObservableObject {
             calendars: calendars,
             existingEvents: existing,
             currentDrafts: drafts,
-            queryRangeProvider: { start, end in
-                let raw = weakDelegate?.aiQueryItems(from: start, to: end) ?? []
+            queryRangeProvider: { [weak delegate = hostDelegate] start, end in
+                let raw = delegate?.aiQueryItems(from: start, to: end) ?? []
                 return raw.map { Self.mapExistingItem($0) }
             }
         )
