@@ -19,60 +19,27 @@ struct ItsycalMobileApp: App {
 // MARK: - Root Adaptive Layout (iPhone Compact Column vs iPad Split View)
 
 struct MobileRootView: View {
-    enum LayoutPreviewMode: String, CaseIterable {
-        case auto = "自适应"
-        case iPhone = "iPhone 布局"
-        case iPad = "iPad 布局"
-    }
-
     @ObservedObject var eventStore: MobileEventStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var previewMode: LayoutPreviewMode = .auto
     @State private var showNewSheet = false
     @State private var showAISheet = false
     @State private var showSettingsSheet = false
     @State private var overdueExpanded = true
 
-    private var useSplitLayout: Bool {
-        switch previewMode {
-        case .iPhone: return false
-        case .iPad: return true
-        case .auto:
-            #if os(macOS)
-            return true
-            #else
-            return horizontalSizeClass == .regular
-            #endif
-        }
-    }
-
     var body: some View {
         NavigationStack {
             Group {
-                if useSplitLayout {
+                if horizontalSizeClass == .regular {
                     iPadSplitLayout
                 } else {
                     iPhoneCompactLayout
                 }
             }
-            .frame(minWidth: previewMode == .iPhone ? 390 : 360, maxWidth: previewMode == .iPhone ? 430 : .infinity, minHeight: 620)
             .navigationTitle("Itsycal")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItemGroup(placement: .automatic) {
-                    #if os(macOS)
-                    Picker("预览模式", selection: $previewMode) {
-                        ForEach(LayoutPreviewMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 210)
-                    #endif
-
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             let now = Date()
