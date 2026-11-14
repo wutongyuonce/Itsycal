@@ -1122,4 +1122,50 @@ public enum AILLMClient {
         }
         return responseText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    public static func executeCodeModeRound(
+        userText: String,
+        config: AIConfig,
+        history: [AIChatMessage],
+        hostContext: AICodeModeHostContext
+    ) async throws -> AICodeModeResult {
+        let sysPrompt = systemPrompt(host: hostContext, customInstructions: config.customInstructions)
+        var msgs = history
+        msgs.append(AIChatMessage(role: .user, content: userText))
+
+        let firstRaw = try await sendRequest(config: config, systemPrompt: sysPrompt, messages: msgs)
+        let firstScript = extractJSCode(from: firstRaw)
+
+        do {
+            return try AICodeModeRunner.run(script: firstScript, host: hostContext)
+        } catch let firstErr as AICodeModeError {
+            if case .scriptException(let jsError) = firstErr {
+                var retryMsgs = msgs
+                retryMsgs.append(AIChatMessage(role: .assistant, content: firstRaw))
+                retryMsgs.append(AIChatMessage(
+                    role: .user,
+                    content: "Your JavaScript threw a runtime error: \(jsError). Please fix the script and output ONLY the corrected ```javascript block."
+                ))
+                let retryRaw = try await sendRequest(config: config, systemPrompt: sysPrompt, messages: retryMsgs)
+                let retryScript = extractJSCode(from: retryRaw)
+                return try AICodeModeRunner.run(script: retryScript, host: hostContext)
+            }
+            throw firstErr
+        }
+    }
+
+    public static func sendRequest(
+        config: AIConfig,
+        systemPrompt: String,
+        messages: [AIChatMessage]
+    ) async throws -> String {
+        let request = try buildRequest(config: config, systemPrompt: systemPrompt, messages: messages)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            _ = try parseResponse(data: data, protocolKind: config.protocolKind)
+            let bodyText = String(data: data, encoding: .utf8) ?? ""
+            throw AICodeModeError.llmError("HTTP \(http.statusCode): \(bodyText.prefix(240))")
+        }
+        return try parseResponse(data: data, protocolKind: config.protocolKind)
+    }
 }

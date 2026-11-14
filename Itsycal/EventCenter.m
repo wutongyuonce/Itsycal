@@ -184,16 +184,6 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
     return [EKReminder reminderWithEventStore:_store];
 }
 
-- (BOOL)saveNewEvent:(EKEvent *)event undoManager:(NSUndoManager *)undoManager error:(NSError **)error {
-    if (![_store saveEvent:event span:EKSpanThisEvent commit:YES error:error]) {
-        return NO;
-    }
-    // Redo saves a fresh copy, since an event that has been
-    // removed can't be saved again.
-    [self _registerUndoForNewEvent:event maker:EventMakerForEvent(event) undoManager:undoManager];
-    return YES;
-}
-
 - (BOOL)applyBatchChangesWithAddedEvents:(NSArray<EKEvent *> *)addedEvents
                           addedReminders:(NSArray<EKReminder *> *)addedReminders
                            deletedEvents:(NSArray<EKEvent *> *)deletedEvents
@@ -225,8 +215,13 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
     }
     for (NSUInteger i = 0; i < deletedEvents.count; i++) {
         EKEvent *event = deletedEvents[i];
-        [deletedEventMakers addObject:EventMakerForEvent(event)];
         EKSpan span = (i < deletedEventSpans.count) ? (EKSpan)deletedEventSpans[i].integerValue : EKSpanThisEvent;
+        EventMaker baseMaker = EventMakerForEvent(event);
+        [deletedEventMakers addObject:^EKEvent *(EKEventStore *store) {
+            EKEvent *copy = baseMaker(store);
+            if (span == EKSpanThisEvent) copy.recurrenceRules = nil;
+            return copy;
+        }];
         if (![_store removeEvent:event span:span commit:NO error:error]) {
             [self _rollbackStoreAndRefetch];
             return NO;
@@ -401,10 +396,6 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
     return NO;
 }
 
-- (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error {
-    return [_store removeEvent:event span:span commit:YES error:error];
-}
-
 - (void)updateSelectedCalendarsForIdentifier:(NSString *)identifier selected:(BOOL)selected {
     //os_log(OS_LOG_DEFAULT, "%s", __FUNCTION__);
     // The user has selected/unselected a calendar in Prefs.
@@ -523,39 +514,6 @@ static ReminderRestorer ReminderRestorerForReminder(EKReminder *reminder); // se
 }
 
 #pragma mark - Undo (main thread)
-
-- (void)_registerUndoForNewEvent:(EKEvent *)event maker:(EventMaker)maker undoManager:(NSUndoManager *)undoManager {
-    NSString *identifier = event.eventIdentifier;
-    NSArray *fingerprint = [self _undoFingerprintForEvent:event];
-    __weak NSUndoManager *weakUndoManager = undoManager;
-    [undoManager registerUndoWithTarget:self handler:^(EventCenter *ec) {
-        // Undo: remove the event, unless it is gone or has
-        // changed since we saved it.
-        EKEvent *saved = [ec->_store eventWithIdentifier:identifier];
-        if (saved == nil || ![[ec _undoFingerprintForEvent:saved] isEqual:fingerprint]) {
-            NSBeep();
-            return;
-        }
-        // For a repeating event, saved is the first occurrence,
-        // so EKSpanFutureEvents removes the whole series.
-        NSError *error = nil;
-        EKSpan span = saved.hasRecurrenceRules ? EKSpanFutureEvents : EKSpanThisEvent;
-        if (![ec->_store removeEvent:saved span:span commit:YES error:&error]) {
-            if (error != nil) [[NSAlert alertWithError:error] runModal];
-            return;
-        }
-        // Redo: save a fresh copy, then register undo for it.
-        [weakUndoManager registerUndoWithTarget:ec handler:^(EventCenter *ec) {
-            EKEvent *copy = maker(ec->_store);
-            NSError *error = nil;
-            if (![ec->_store saveEvent:copy span:EKSpanThisEvent commit:YES error:&error]) {
-                if (error != nil) [[NSAlert alertWithError:error] runModal];
-                return;
-            }
-            [ec _registerUndoForNewEvent:copy maker:maker undoManager:weakUndoManager];
-        }];
-    }];
-}
 
 - (void)_registerUndoForBatchAddedEvents:(NSArray<EKEvent *> *)events
                         addedEventMakers:(NSArray<EventMaker> *)eventMakers

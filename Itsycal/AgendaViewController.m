@@ -250,7 +250,9 @@ static const CGFloat kReminderFillGap = 1;
         item = [menu addItemWithTitle:NSLocalizedString(@"Copy Meeting Link", nil) action:@selector(copyMeetingURLToPasteboard:) keyEquivalent:@""];
         item.representedObject = info.meetingURL;
     }
-    if (info.event.calendar.allowsContentModifications) {
+    if (info.isEditable) {
+        item = [menu addItemWithTitle:NSLocalizedString(@"Edit…", nil) action:@selector(editEvent:) keyEquivalent:@""];
+        item.representedObject = info;
         item = [menu addItemWithTitle:NSLocalizedString(@"Delete…", nil) action:@selector(deleteEvent:) keyEquivalent:@""];
         item.representedObject = info;
     }

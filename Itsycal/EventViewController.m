@@ -694,6 +694,7 @@ static const NSInteger kCustomRepeatTag = -1;
 
 - (void)calPopupChanged:(id)sender
 {
+    _alarmsModified = YES;
     NSArray<NSNumber *> *alertIndexes = [self alertIndexesWithoutDefault];
     [self populateAlertPopup];
     [self showAlertIndexesWithDefault:alertIndexes];
@@ -935,6 +936,11 @@ static const NSInteger kCustomRepeatTag = -1;
         item.recurrenceRules = rule ? @[rule] : nil;
     }
 
+    if ([item isKindOfClass:[EKReminder class]]) {
+        EKReminder *reminder = (EKReminder *)item;
+        reminder.startDateComponents = reminder.hasRecurrenceRules ? [reminder.dueDateComponents copy] : nil;
+    }
+
     if (updateAlarms) {
         for (EKAlarm *alarm in [item.alarms copy]) {
             [item removeAlarm:alarm];
@@ -1008,7 +1014,16 @@ static const NSInteger kCustomRepeatTag = -1;
     else {
         EKEvent *event = [self.ec newEvent];
         [self fillItem:event updateRecurrence:YES updateAlarms:YES];
-        saved = [self.ec saveNewEvent:event undoManager:self.eventUndoManager error:&error];
+        saved = [self.ec applyBatchChangesWithAddedEvents:@[event]
+                                           addedReminders:@[]
+                                            deletedEvents:@[]
+                                        deletedEventSpans:@[]
+                                         deletedReminders:@[]
+                                              undoManager:self.eventUndoManager
+                                                    error:&error];
+        if (saved && event.calendar.calendarIdentifier) {
+            [self.ec updateSelectedCalendarsForIdentifier:event.calendar.calendarIdentifier selected:YES];
+        }
     }
 
     if (saved == NO && error != nil) {

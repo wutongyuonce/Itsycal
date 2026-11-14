@@ -116,7 +116,11 @@ struct PeriodNavigation {
 
     // One key per period holding [target, until], so readers never see half an update.
     private static func key(_ period: WidgetPeriod) -> String { "navigation.\(period.rawValue)" }
-    private static var defaults: UserDefaults? { WidgetShared.group.flatMap(UserDefaults.init(suiteName:)) }
+    // Without an App Group (the iOS widgets) the state stays in the widget
+    // extension, which is also where the switch intent runs.
+    private static var defaults: UserDefaults? {
+        WidgetShared.group.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+    }
 
     static func load(_ period: WidgetPeriod) -> PeriodNavigation? {
         guard let value = defaults?.array(forKey: key(period)) as? [TimeInterval], value.count == 2 else { return nil }
