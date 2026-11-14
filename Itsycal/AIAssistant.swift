@@ -1101,17 +1101,16 @@ public enum AISessionStore {
     }
 
     public static func cacheSizeDescription() -> String {
-        var bytes: Int64 = Int64(URLCache.shared.currentDiskUsage)
-        if let url = sessionFileURL(),
-           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let fileSize = attrs[.size] as? NSNumber {
-            bytes += fileSize.int64Value
+        guard let url = sessionFileURL(),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = attrs[.size] as? NSNumber,
+              fileSize.int64Value > 0 else {
+            return "0 KB"
         }
-        if bytes <= 0 { return "0 KB" }
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB]
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        return formatter.string(fromByteCount: fileSize.int64Value)
     }
 }
 
