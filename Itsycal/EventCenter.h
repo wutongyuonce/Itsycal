@@ -29,6 +29,7 @@
 @property (nonatomic, readonly) EKAuthorizationStatus remindersAuthorizationStatus;
 
 @property (nonatomic, readonly) NSString *defaultCalendarIdentifier;
+@property (nonatomic, readonly) NSString *defaultReminderCalendarIdentifier;
 
 // Delegate is responsible for...
 @property (nonatomic, weak) id<EventCenterDelegate> delegate;
@@ -36,12 +37,30 @@
 - (instancetype)initWithCalendar:(NSCalendar *)calendar delegate:(id<EventCenterDelegate>)delegate;
 
 - (EKEvent *)newEvent;
+- (EKReminder *)newReminder;
 
 // Save a new event and register its undo (remove it) and
 // redo (save it again) with undoManager. Undo and redo do
 // nothing but beep if the event has changed since, e.g. in
 // Calendar or on another device.
 - (BOOL)saveNewEvent:(EKEvent *)event undoManager:(NSUndoManager *)undoManager error:(NSError **)error;
+
+// Atomically save a batch of new events and reminders in one store
+// commit, and register a single combined undo/redo action with undoManager.
+// Atomically save new events/reminders and delete specified existing events/reminders
+// in one store commit, registering a single combined undo/redo action with undoManager.
+- (BOOL)applyBatchChangesWithAddedEvents:(NSArray<EKEvent *> *)addedEvents
+                          addedReminders:(NSArray<EKReminder *> *)addedReminders
+                           deletedEvents:(NSArray<EKEvent *> *)deletedEvents
+                       deletedEventSpans:(NSArray<NSNumber *> *)deletedEventSpans
+                        deletedReminders:(NSArray<EKReminder *> *)deletedReminders
+                             undoManager:(NSUndoManager *)undoManager
+                                   error:(NSError **)error;
+
+- (EKEvent *)eventWithIdentifier:(NSString *)identifier;
+- (EKReminder *)reminderWithIdentifier:(NSString *)identifier;
+- (NSArray<EKEvent *> *)eventsFromDate:(NSDate *)startDate toDate:(NSDate *)endDate;
+- (NSArray<EKReminder *> *)allIncompleteReminders;
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error;
 
@@ -106,7 +125,8 @@
 
 - (void)eventCenterEventsChanged;
 - (MoDate)fetchStartDate;
-- (MoDate)fetchEndDate;
+- (MoDate)fetchEndDate; // Exclusive
+- (MoDate)todayDate;    // Also fetched, for the meeting indicator
 
 @end
 

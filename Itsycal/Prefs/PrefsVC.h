@@ -10,6 +10,9 @@
 // Show About panel.
 - (void)showAbout;
 
+// Show AI panel.
+- (void)showAI;
+
 // Show General panel if About panel is showing.
 - (void)showPrefs;
 

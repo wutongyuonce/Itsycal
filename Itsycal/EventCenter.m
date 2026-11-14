@@ -66,11 +66,13 @@ static NSComparisonResult CompareItemsOnDay(EventInfo *e1, EventInfo *e2); // se
 - (void)restoreReminder:(EKReminder *)reminder;
 @end
 typedef EKEvent *(^EventMaker)(EKEventStore *store);
+typedef EKReminder *(^ReminderMaker)(EKEventStore *store);
 static EventMaker EventMakerForEvent(EKEvent *event); // see below
+static ReminderMaker ReminderMakerForReminder(EKReminder *reminder); // see below
 
 @implementation EventCenter {                      // Accessed on:
     EKEventStore         *_store;
-    NSCalendar           *_cal;
+    NSCalendar           *_cal; // user's calendar; see _nsCal in ViewController.m
     NSMutableDictionary  *_eventsForDate;          // _queueWork
     NSDictionary         *_filteredEventsForDate;  // _queueIsol
     NSMutableIndexSet    *_previouslyFetchedDates; // _queueWork
@@ -165,8 +167,17 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     return cal.calendarIdentifier;
 }
 
+- (NSString *)defaultReminderCalendarIdentifier {
+    EKCalendar *cal = [_store defaultCalendarForNewReminders];
+    return cal.calendarIdentifier;
+}
+
 - (EKEvent *)newEvent {
     return [EKEvent eventWithEventStore:_store];
+}
+
+- (EKReminder *)newReminder {
+    return [EKReminder reminderWithEventStore:_store];
 }
 
 - (BOOL)saveNewEvent:(EKEvent *)event undoManager:(NSUndoManager *)undoManager error:(NSError **)error {
@@ -177,6 +188,133 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     // removed can't be saved again.
     [self _registerUndoForNewEvent:event maker:EventMakerForEvent(event) undoManager:undoManager];
     return YES;
+}
+
+- (BOOL)applyBatchChangesWithAddedEvents:(NSArray<EKEvent *> *)addedEvents
+                          addedReminders:(NSArray<EKReminder *> *)addedReminders
+                           deletedEvents:(NSArray<EKEvent *> *)deletedEvents
+                       deletedEventSpans:(NSArray<NSNumber *> *)deletedEventSpans
+                        deletedReminders:(NSArray<EKReminder *> *)deletedReminders
+                             undoManager:(NSUndoManager *)undoManager
+                                   error:(NSError **)error {
+    if (addedEvents.count == 0 && addedReminders.count == 0 && deletedEvents.count == 0 && deletedReminders.count == 0) {
+        return YES;
+    }
+    NSMutableArray<EventMaker> *addedEventMakers = [NSMutableArray new];
+    NSMutableArray<ReminderMaker> *addedReminderMakers = [NSMutableArray new];
+    NSMutableArray<EventMaker> *deletedEventMakers = [NSMutableArray new];
+    NSMutableArray<ReminderMaker> *deletedReminderMakers = [NSMutableArray new];
+
+    for (EKEvent *event in addedEvents) {
+        [addedEventMakers addObject:EventMakerForEvent(event)];
+        if (![_store saveEvent:event span:EKSpanThisEvent commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    for (EKReminder *reminder in addedReminders) {
+        [addedReminderMakers addObject:ReminderMakerForReminder(reminder)];
+        if (![_store saveReminder:reminder commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    for (NSUInteger i = 0; i < deletedEvents.count; i++) {
+        EKEvent *event = deletedEvents[i];
+        [deletedEventMakers addObject:EventMakerForEvent(event)];
+        EKSpan span = (i < deletedEventSpans.count) ? (EKSpan)deletedEventSpans[i].integerValue : EKSpanThisEvent;
+        if (![_store removeEvent:event span:span commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    for (EKReminder *reminder in deletedReminders) {
+        [deletedReminderMakers addObject:ReminderMakerForReminder(reminder)];
+        if (![_store removeReminder:reminder commit:NO error:error]) {
+            [self _rollbackStoreAndRefetch];
+            return NO;
+        }
+    }
+    if (![_store commit:error]) {
+        [self _rollbackStoreAndRefetch];
+        return NO;
+    }
+    if (undoManager) {
+        [self _registerUndoForBatchAddedEvents:addedEvents
+                              addedEventMakers:addedEventMakers
+                                addedReminders:addedReminders
+                           addedReminderMakers:addedReminderMakers
+                            deletedEventMakers:deletedEventMakers
+                         deletedReminderMakers:deletedReminderMakers
+                                   undoManager:undoManager];
+    }
+    [self refetchAll];
+    return YES;
+}
+
+- (EKEvent *)eventWithIdentifier:(NSString *)identifier {
+    if (identifier.length == 0) return nil;
+    EKEvent *ev = [_store eventWithIdentifier:identifier];
+    if (ev) return ev;
+    EKCalendarItem *item = [_store calendarItemWithIdentifier:identifier];
+    return [item isKindOfClass:[EKEvent class]] ? (EKEvent *)item : nil;
+}
+
+- (EKReminder *)reminderWithIdentifier:(NSString *)identifier {
+    if (identifier.length == 0) return nil;
+    return [self _reminderWithIdentifier:identifier];
+}
+
+- (NSArray<EKEvent *> *)eventsFromDate:(NSDate *)startDate toDate:(NSDate *)endDate {
+    if (!self.calendarAccessGranted || !startDate || !endDate || [startDate compare:endDate] != NSOrderedAscending) {
+        return @[];
+    }
+    NSArray *cals = [self _validCalendarsForEntityMask:EKEntityMaskEvent];
+    if (cals.count == 0) return @[];
+    // EventKit caps a single predicateForEventsWithStartDate:endDate:calendars:
+    // query at 4 years. Chunk longer spans into 3-year windows so historical or
+    // far-future queries are never silently truncated.
+    NSMutableArray<EKEvent *> *results = [NSMutableArray new];
+    NSMutableSet<NSString *> *seen = [NSMutableSet new];
+    NSDate *chunkStart = startDate;
+    while ([chunkStart compare:endDate] == NSOrderedAscending) {
+        NSDate *threeYearsLater = [_cal dateByAddingUnit:NSCalendarUnitYear value:3 toDate:chunkStart options:0];
+        NSDate *chunkEnd = [threeYearsLater earlierDate:endDate];
+        NSPredicate *predicate = [_store predicateForEventsWithStartDate:chunkStart endDate:chunkEnd calendars:cals];
+        NSArray<EKEvent *> *fetched = [_store eventsMatchingPredicate:predicate];
+        for (EKEvent *ev in fetched) {
+            NSString *key = [NSString stringWithFormat:@"%@-%f", ev.eventIdentifier ?: ev.calendarItemIdentifier ?: ev.title, ev.startDate.timeIntervalSince1970];
+            if ([seen containsObject:key]) continue;
+            [seen addObject:key];
+            [results addObject:ev];
+        }
+        chunkStart = chunkEnd;
+    }
+    return results;
+}
+
+- (NSArray<EKReminder *> *)allIncompleteReminders {
+    if (self.remindersAuthorizationStatus != EKAuthorizationStatusFullAccess) return @[];
+    __block NSArray<EKReminder *> *cached = nil;
+    dispatch_sync(_queueWork, ^{
+        if (self->_incompleteReminders == nil) {
+            NSArray *lists = [self _validCalendarsForEntityMask:EKEntityMaskReminder];
+            if (lists.count > 0) {
+                self->_incompleteReminders = [self _fetchRemindersMatchingPredicate:[self->_store predicateForIncompleteRemindersWithDueDateStarting:nil ending:nil calendars:lists]];
+            } else {
+                self->_incompleteReminders = @[];
+            }
+        }
+        cached = [self->_incompleteReminders copy];
+    });
+    return cached ?: @[];
+}
+
+- (void)_rollbackStoreAndRefetch {
+    dispatch_sync(_queueWork, ^{
+        [self->_store reset];
+    });
+    [self refetchAll];
 }
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error {
@@ -206,7 +344,7 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     [[NSUserDefaults standardUserDefaults] setObject:selectedCalendars forKey:kSelectedCalendars];
     
     // Reminders are only fetched from selected lists (see
-    // -_fetchRemindersWithStartDate:endDate:), so refetch.
+    // -_fetchRemindersReturningLingeringIDs:), so refetch.
     if (isReminderList) {
         [self refetchAll];
         return;
@@ -264,28 +402,31 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
 
 - (void)fetchEvents {
     //os_log(OS_LOG_DEFAULT, "%s", __FUNCTION__);
-    MoDate startMoDate = [self.delegate fetchStartDate];
-    MoDate endMoDate   = [self.delegate fetchEndDate];
-    dispatch_async(_queueWork, ^{
-        @autoreleasepool {
-            BOOL fetched = [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:NO];
-            [self _fetchSnapshotAndPublish:fetched];
-        }
-    });
+    [self _fetchClearingCache:NO];
 }
 
 - (void)refetchAll {
     //os_log(OS_LOG_DEFAULT, "%s", __FUNCTION__);
     // Either the system told us the event store has changed or
     // we were called by the main controller. Clear the cache
-    // and refetch everything.
+    // and refetch the calendar's dates and today.
+    [self _fetchClearingCache:YES];
+}
+
+// Read the dates to fetch from the delegate, here on the main thread,
+// then fetch on _queueWork. If clearCache, refetch the calendars and
+// clear the cache first.
+- (void)_fetchClearingCache:(BOOL)clearCache {
     MoDate startMoDate = [self.delegate fetchStartDate];
     MoDate endMoDate   = [self.delegate fetchEndDate];
+    MoDate today       = [self.delegate todayDate];
     dispatch_async(_queueWork, ^{
         @autoreleasepool {
-            [self _fetchSourcesAndCalendars];
-            [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate refetch:YES];
-            [self _fetchSnapshotAndPublish:YES];
+            if (clearCache) {
+                [self _fetchSourcesAndCalendars];
+            }
+            BOOL fetched = [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate today:today clearCache:clearCache];
+            [self _fetchSnapshotAndPublish:clearCache || fetched];
         }
     });
 }
@@ -328,6 +469,120 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
                 return;
             }
             [ec _registerUndoForNewEvent:copy maker:maker undoManager:weakUndoManager];
+        }];
+    }];
+}
+
+- (void)_registerUndoForBatchAddedEvents:(NSArray<EKEvent *> *)events
+                        addedEventMakers:(NSArray<EventMaker> *)eventMakers
+                          addedReminders:(NSArray<EKReminder *> *)reminders
+                     addedReminderMakers:(NSArray<ReminderMaker> *)reminderMakers
+                      deletedEventMakers:(NSArray<EventMaker> *)deletedEventMakers
+                   deletedReminderMakers:(NSArray<ReminderMaker> *)deletedReminderMakers
+                             undoManager:(NSUndoManager *)undoManager {
+    NSMutableArray<NSString *> *eventIDs = [NSMutableArray new];
+    NSMutableArray<NSArray *> *eventFingerprints = [NSMutableArray new];
+    for (EKEvent *event in events) {
+        [eventIDs addObject:event.eventIdentifier ?: event.calendarItemIdentifier ?: @""];
+        [eventFingerprints addObject:[self _undoFingerprintForEvent:event]];
+    }
+    NSMutableArray<NSString *> *reminderIDs = [NSMutableArray new];
+    NSMutableArray<NSArray *> *reminderFingerprints = [NSMutableArray new];
+    for (EKReminder *reminder in reminders) {
+        [reminderIDs addObject:reminder.calendarItemIdentifier ?: @""];
+        [reminderFingerprints addObject:[self _undoFingerprintForReminder:reminder]];
+    }
+    __weak NSUndoManager *weakUndoManager = undoManager;
+    [undoManager registerUndoWithTarget:self handler:^(EventCenter *ec) {
+        NSMutableArray<EKEvent *> *savedEvents = [NSMutableArray new];
+        for (NSUInteger i = 0; i < eventIDs.count; i++) {
+            EKEvent *saved = [ec eventWithIdentifier:eventIDs[i]];
+            if (saved == nil || ![[ec _undoFingerprintForEvent:saved] isEqual:eventFingerprints[i]]) {
+                NSBeep();
+                return;
+            }
+            [savedEvents addObject:saved];
+        }
+        NSMutableArray<EKReminder *> *savedReminders = [NSMutableArray new];
+        for (NSUInteger i = 0; i < reminderIDs.count; i++) {
+            EKReminder *saved = [ec _reminderWithIdentifier:reminderIDs[i]];
+            if (saved == nil || ![[ec _undoFingerprintForReminder:saved] isEqual:reminderFingerprints[i]]) {
+                NSBeep();
+                return;
+            }
+            [savedReminders addObject:saved];
+        }
+        NSMutableArray<EKEvent *> *restoredEvents = [NSMutableArray new];
+        for (EventMaker maker in deletedEventMakers) [restoredEvents addObject:maker(ec->_store)];
+        NSMutableArray<EKReminder *> *restoredReminders = [NSMutableArray new];
+        for (ReminderMaker maker in deletedReminderMakers) [restoredReminders addObject:maker(ec->_store)];
+
+        NSError *error = nil;
+        for (EKEvent *saved in savedEvents) {
+            EKSpan span = saved.hasRecurrenceRules ? EKSpanFutureEvents : EKSpanThisEvent;
+            if (![ec->_store removeEvent:saved span:span commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        for (EKReminder *saved in savedReminders) {
+            if (![ec->_store removeReminder:saved commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        for (EKEvent *restored in restoredEvents) {
+            if (![ec->_store saveEvent:restored span:EKSpanThisEvent commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        for (EKReminder *restored in restoredReminders) {
+            if (![ec->_store saveReminder:restored commit:NO error:&error]) {
+                [ec _rollbackStoreAndRefetch];
+                if (error != nil) [[NSAlert alertWithError:error] runModal];
+                return;
+            }
+        }
+        if (![ec->_store commit:&error]) {
+            [ec _rollbackStoreAndRefetch];
+            if (error != nil) [[NSAlert alertWithError:error] runModal];
+            return;
+        }
+        [ec refetchAll];
+        [weakUndoManager registerUndoWithTarget:ec handler:^(EventCenter *ec) {
+            NSMutableArray<EKEvent *> *copiedEvents = [NSMutableArray new];
+            for (EventMaker maker in eventMakers) [copiedEvents addObject:maker(ec->_store)];
+            NSMutableArray<EKReminder *> *copiedReminders = [NSMutableArray new];
+            for (ReminderMaker maker in reminderMakers) [copiedReminders addObject:maker(ec->_store)];
+            NSMutableArray<EKEvent *> *toDeleteEvents = [NSMutableArray new];
+            NSMutableArray<NSNumber *> *toDeleteSpans = [NSMutableArray new];
+            for (EKEvent *restored in restoredEvents) {
+                NSString *rid = restored.eventIdentifier ?: restored.calendarItemIdentifier;
+                EKEvent *found = [ec eventWithIdentifier:rid];
+                if (found) {
+                    [toDeleteEvents addObject:found];
+                    [toDeleteSpans addObject:@(found.hasRecurrenceRules ? EKSpanFutureEvents : EKSpanThisEvent)];
+                }
+            }
+            NSMutableArray<EKReminder *> *toDeleteReminders = [NSMutableArray new];
+            for (EKReminder *restored in restoredReminders) {
+                EKReminder *found = [ec reminderWithIdentifier:restored.calendarItemIdentifier];
+                if (found) [toDeleteReminders addObject:found];
+            }
+            NSError *redoError = nil;
+            if (![ec applyBatchChangesWithAddedEvents:copiedEvents
+                                       addedReminders:copiedReminders
+                                        deletedEvents:toDeleteEvents
+                                    deletedEventSpans:toDeleteSpans
+                                     deletedReminders:toDeleteReminders
+                                          undoManager:weakUndoManager
+                                                error:&redoError]) {
+                if (redoError != nil) [[NSAlert alertWithError:redoError] runModal];
+            }
         }];
     }];
 }
@@ -509,6 +764,15 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
              @(event.isAllDay), start, end];
 }
 
+- (NSArray *)_undoFingerprintForReminder:(EKReminder *)reminder {
+    BOOL hasTime = NO;
+    NSDate *due = DueDateForReminder(reminder, &hasTime, NULL);
+    id dueValue = due ? @(floor(due.timeIntervalSinceReferenceDate / 60)) : NSNull.null;
+    return @[reminder.title ?: @"",
+             reminder.calendar.calendarIdentifier ?: @"",
+             @(reminder.isCompleted), @(hasTime), dueValue];
+}
+
 #pragma mark - Private (GCD thread pool)
 
 // Make sure the widget range (this month and next) is cached, then filter
@@ -612,38 +876,62 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
     return calendars;
 }
 
+// Fetch the dates in [startMoDate, endMoDate) and today that aren't
+// cached. Today may be outside the range when the calendar shows another
+// month, and the meeting indicator needs today's events. Events are
+// queried for each run of consecutive uncached dates, so cached dates
+// between runs aren't queried again; reminders are fetched once.
 // Returns NO when the whole range was already cached and nothing was queried.
 - (BOOL)_fetchEventsWithStartDate:(MoDate)startMoDate endDate:(MoDate)endMoDate refetch:(BOOL)refetch
 {
+    return [self _fetchEventsWithStartDate:startMoDate endDate:endMoDate today:startMoDate clearCache:refetch];
+}
+
+- (BOOL)_fetchEventsWithStartDate:(MoDate)startMoDate endDate:(MoDate)endMoDate today:(MoDate)today clearCache:(BOOL)clearCache
+{
     //os_log(OS_LOG_DEFAULT, " %s", __FUNCTION__);
-    if (refetch) {
+    if (clearCache) {
         _previouslyFetchedDates = [NSMutableIndexSet new];
         _eventsForDate = [NSMutableDictionary new];
         _incompleteReminders = nil;
         _completedReminders = nil;
     }
-    // Return immediately if we've already fetched for this date range.
-    NSRange dateRange = NSMakeRange(startMoDate.julian, endMoDate.julian - startMoDate.julian);
-    if ([_previouslyFetchedDates containsIndexesInRange:dateRange])  {
+    NSMutableIndexSet *notYetFetchedDates = [NSMutableIndexSet indexSetWithIndexesInRange:NSMakeRange(startMoDate.julian, endMoDate.julian - startMoDate.julian)];
+    [notYetFetchedDates addIndex:today.julian];
+    [notYetFetchedDates removeIndexes:_previouslyFetchedDates];
+    // Return immediately if we've already fetched all of them.
+    if (notYetFetchedDates.count == 0) {
         //os_log(OS_LOG_DEFAULT, "SKIPPING: %@ - %@", NSStringFromMoDate(startMoDate), NSStringFromMoDate(endMoDate));
         return NO;
     }
-    
-    // Query the full half-open interval when any date is missing. Keeping
-    // both bounds intact avoids dropping the last uncached day.
-    // Update _previouslyFetchedDates for this fetch.
-    [_previouslyFetchedDates addIndexesInRange:dateRange];
-    
-    NSDate *startDate = MakeNSDateWithDate(startMoDate, _cal);
-    NSDate *endDate   = MakeNSDateWithDate(endMoDate,   _cal);
+    [_previouslyFetchedDates addIndexes:notYetFetchedDates];
+
+    NSMutableDictionary *eventsForDate = [NSMutableDictionary new];
     NSArray *cals = [self _validCalendarsForEntityMask:EKEntityMaskEvent];
+    [notYetFetchedDates enumerateRangesUsingBlock:^(NSRange run, BOOL *stop) {
+        NSDate *start = MakeNSDateWithDate(MakeGregorian(run.location),   self->_cal);
+        NSDate *end   = MakeNSDateWithDate(MakeGregorian(NSMaxRange(run)), self->_cal);
+        [self _addEventsWithStartDate:start endDate:end calendars:cals toEventsForDate:eventsForDate];
+    }];
+    [self _addRemindersForDates:notYetFetchedDates toEventsForDate:eventsForDate];
+
+    // eventsForDate is a dict that maps dates to an array of EventInfo objects.
+    // Sort each day's items. See CompareItemsOnDay().
+    for (NSDate *date in eventsForDate) {
+        [eventsForDate[date] sortUsingComparator:^NSComparisonResult(EventInfo *e1, EventInfo *e2) {
+            return CompareItemsOnDay(e1, e2);
+        }];
+    }
+
+    [_eventsForDate addEntriesFromDictionary:eventsForDate];
+    return YES;
+}
+
+// Add the events in [startDate, endDate) from cals to eventsForDate.
+- (void)_addEventsWithStartDate:(NSDate *)startDate endDate:(NSDate *)endDate calendars:(NSArray *)cals toEventsForDate:(NSMutableDictionary *)eventsForDate
+{
     NSPredicate *predicate = [_store predicateForEventsWithStartDate:startDate endDate:endDate calendars:cals];
     NSArray *events = self.calendarAccessGranted ? [_store eventsMatchingPredicate:predicate] : @[];
-    NSMutableDictionary *eventsForDate = [NSMutableDictionary new];
-    for (NSDate *day = startDate; [day compare:endDate] == NSOrderedAscending;
-         day = [_cal dateByAddingUnit:NSCalendarUnitDay value:1 toDate:day options:0]) {
-        eventsForDate[day] = [NSMutableArray new];
-    }
     
     // Does EKEvent still respond to the private 'participationStatus'
     // selector? Check once instead of risking an NSUndefinedKeyException
@@ -707,15 +995,22 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
             date = nextDate;
         }
     }
-    
-    // Add reminders that are due between startDate and endDate, and
-    // the later occurrences of repeating reminders that fall there.
-    // Also collect each incomplete reminder's current occurrence (and
-    // lingering completed ones) for the agenda's Overdue section. The
-    // main thread picks those due before today when it builds the
-    // agenda, so the section is right after midnight too.
+}
+
+// Add reminders that are due on dates (julian days), and the later
+// occurrences of repeating reminders that fall on them, to
+// eventsForDate. Also collect each incomplete reminder's current
+// occurrence (and lingering completed ones) for the agenda's Overdue
+// section. The main thread picks those due before today when it builds
+// the agenda, so the section is right after midnight too.
+- (void)_addRemindersForDates:(NSIndexSet *)dates toEventsForDate:(NSMutableDictionary *)eventsForDate
+{
+    // Expand repeating reminders once over the span of dates, then keep
+    // the occurrences that fall on one of them.
+    NSDate *spanStart = MakeNSDateWithDate(MakeGregorian(dates.firstIndex),    _cal);
+    NSDate *spanEnd   = MakeNSDateWithDate(MakeGregorian(dates.lastIndex + 1), _cal);
     NSSet<NSString *> *lingeringIDs;
-    NSArray<EKReminder *> *reminders = [self _fetchRemindersWithStartDate:startDate endDate:endDate lingering:&lingeringIDs];
+    NSArray<EKReminder *> *reminders = [self _fetchRemindersReturningLingeringIDs:&lingeringIDs];
     NSMutableArray<EventInfo *> *overdueCandidates = [NSMutableArray new];
     for (EKReminder *reminder in reminders) {
         // Only reminders with a due date belong on the calendar.
@@ -735,13 +1030,12 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
         }
         NSMutableArray<NSDate *> *occurrences = [NSMutableArray arrayWithObject:dueDate];
         if (!reminder.isCompleted && reminder.hasRecurrenceRules) {
-            NSArray *later = RecurrenceDates(reminder.recurrenceRules.firstObject, dueDate, dueCalendar, startDate, endDate);
+            NSArray *later = RecurrenceDates(reminder.recurrenceRules.firstObject, dueDate, dueCalendar, spanStart, spanEnd);
             if (later) [occurrences addObjectsFromArray:later];
         }
         for (NSDate *occurrence in occurrences) {
             NSDate *date = [_cal startOfDayForDate:occurrence];
-            if ([date compare:startDate] == NSOrderedAscending ||
-                [date compare:endDate] != NSOrderedAscending) {
+            if (![dates containsIndex:MakeDateWithNSDate(date, _cal).julian]) {
                 continue;
             }
             EventInfo *info = [EventInfo new];
@@ -759,28 +1053,12 @@ static EventMaker EventMakerForEvent(EKEvent *event); // see below
         }
     }
     _overdueCandidates = overdueCandidates;
-
-    // eventsForDate is a dict that maps dates to an array of EventInfo objects.
-    // Sort each day's items. See CompareItemsOnDay().
-    for (NSDate *date in eventsForDate) {
-        [eventsForDate[date] sortUsingComparator:^NSComparisonResult(EventInfo *e1, EventInfo *e2) {
-            return CompareItemsOnDay(e1, e2);
-        }];
-    }
-    
-    // Empty buckets replace old cache entries but are not published as
-    // dates with events (the agenda distinguishes nil from nonempty arrays).
-    for (NSDate *day in eventsForDate) {
-        if ([eventsForDate[day] count]) _eventsForDate[day] = eventsForDate[day];
-        else [_eventsForDate removeObjectForKey:day];
-    }
-    return YES;
 }
 
 // The reminders to show: incomplete ones, and completed ones if the user
 // shows them, or else just those still lingering after being checked
 // off. *lingeringIDs is set to the identifiers of lingering ones.
-- (NSArray<EKReminder *> *)_fetchRemindersWithStartDate:(NSDate *)startDate endDate:(NSDate *)endDate lingering:(NSSet<NSString *> **)lingeringIDs
+- (NSArray<EKReminder *> *)_fetchRemindersReturningLingeringIDs:(NSSet<NSString *> **)lingeringIDs
 {
     *lingeringIDs = [NSSet set];
 
@@ -1225,6 +1503,49 @@ static EventMaker EventMakerForEvent(EKEvent *event)
     };
 }
 
+static ReminderMaker ReminderMakerForReminder(EKReminder *reminder)
+{
+    NSString *title = reminder.title;
+    NSString *calendarID = reminder.calendar.calendarIdentifier;
+    NSString *notes = reminder.notes;
+    NSURL *URL = reminder.URL;
+    NSUInteger priority = reminder.priority;
+    NSDateComponents *dueDateComponents = [reminder.dueDateComponents copy];
+    NSDateComponents *startDateComponents = [reminder.startDateComponents copy];
+    EKRecurrenceRule *rule = reminder.recurrenceRules.firstObject;
+    BOOL hasRule = rule != nil;
+    EKRecurrenceFrequency frequency = rule.frequency;
+    NSInteger interval = rule.interval;
+    NSDate *ruleEndDate = rule.recurrenceEnd.endDate;
+    NSArray<NSDictionary *> *alarmValues = AlarmValuesOfReminder(reminder);
+    return ^EKReminder *(EKEventStore *store) {
+        EKReminder *copy = [EKReminder reminderWithEventStore:store];
+        copy.title = title;
+        copy.calendar = [store calendarWithIdentifier:calendarID];
+        copy.notes = notes;
+        copy.URL = URL;
+        copy.priority = priority;
+        copy.dueDateComponents = [dueDateComponents copy];
+        copy.startDateComponents = [startDateComponents copy];
+        if (hasRule) {
+            EKRecurrenceEnd *end = ruleEndDate ? [EKRecurrenceEnd recurrenceEndWithEndDate:ruleEndDate] : nil;
+            copy.recurrenceRules = @[[[EKRecurrenceRule alloc] initRecurrenceWithFrequency:frequency interval:interval end:end]];
+        }
+        for (EKAlarm *alarm in copy.alarms) {
+            [copy removeAlarm:alarm];
+        }
+        for (NSDictionary *value in alarmValues) {
+            EKAlarm *alarm = value[@"absoluteDate"]
+                ? [EKAlarm alarmWithAbsoluteDate:value[@"absoluteDate"]]
+                : [EKAlarm alarmWithRelativeOffset:[value[@"relativeOffset"] doubleValue]];
+            alarm.emailAddress = value[@"emailAddress"];
+            alarm.soundName = value[@"soundName"];
+            [copy addAlarm:alarm];
+        }
+        return copy;
+    };
+}
+
 // =========================================================================
 // Meeting links
 // =========================================================================
@@ -1232,6 +1553,36 @@ static EventMaker EventMakerForEvent(EKEvent *event)
 static BOOL HostIs(NSString *host, NSString *domain)
 {
     return [host isEqualToString:domain] || [host hasSuffix:[@"." stringByAppendingString:domain]];
+}
+
+// Whether host (lowercased) and path are a Teams meeting join link: a
+// work link (teams.microsoft.com) or a personal one (teams.live.com).
+static BOOL IsTeamsJoinLink(NSString *host, NSString *path)
+{
+    return (   (HostIs(host, @"teams.microsoft.com") && ([path hasPrefix:@"/l/meetup-join/"] || [path hasPrefix:@"/meet/"]))
+            || (HostIs(host, @"teams.live.com") && [path hasPrefix:@"/meet/"]));
+}
+
+// Return the link that a Microsoft Safe Links link wraps, or url
+// unchanged if it isn't one. Organizations using Safe Links (Microsoft
+// Defender for Office 365) get email with each link rewritten to
+// https://<region>.safelinks.protection.outlook.com/?url=<link>&data=...
+// so meeting invites they receive have their join links wrapped. Only
+// one level is unwrapped, and the link must still pass the checks in
+// MeetingURLInText(). Returns url itself (not a copy) when it isn't
+// unwrapped, which MeetingURLInText() relies on.
+static NSURL *UnwrappedSafeLinksURL(NSURL *url)
+{
+    if (!HostIs(url.host.lowercaseString ?: @"", @"safelinks.protection.outlook.com")) return url;
+    NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    for (NSURLQueryItem *item in components.queryItems) {
+        if ([item.name isEqualToString:@"url"]) {
+            // NSURLQueryItem's value is already percent-decoded.
+            NSURL *wrapped = item.value ? [NSURL URLWithString:item.value] : nil;
+            return wrapped ?: url;
+        }
+    }
+    return url;
 }
 
 // Return the first virtual meeting (e.g. Zoom) link in text, or nil.
@@ -1244,7 +1595,11 @@ static NSURL *MeetingURLInText(NSString *text)
     });
     __block NSURL *meetingURL = nil;
     [linkDetector enumerateMatchesInString:text options:kNilOptions range:NSMakeRange(0, text.length) usingBlock:^(NSTextCheckingResult * _Nullable result, NSMatchingFlags flags, BOOL * _Nonnull stop) {
-        NSURL *url = result.URL;
+        NSURL *url = UnwrappedSafeLinksURL(result.URL);
+        // An unwrapped link is opened without the click-time check Safe
+        // Links would have done, so it must match a named service; the
+        // self-hosted BigBlueButton rule below matches any host.
+        BOOL unwrapped = url != result.URL;
         // Match on the URL's host (and scheme, for app-link URIs), not on
         // the raw URL string. A substring check like
         // [link containsString:@"zoom.us/j/"] would also match a hostile
@@ -1261,7 +1616,7 @@ static NSURL *MeetingURLInText(NSString *text)
         if (   (   (hostIs(@"zoom.us") || hostIs(@"zoomgov.com"))
                 && ([path hasPrefix:@"/j/"] || [path hasPrefix:@"/s/"]
                     || [path hasPrefix:@"/w/"] || [path hasPrefix:@"/my/"]))
-            || (hostIs(@"teams.microsoft.com") && [path hasPrefix:@"/l/meetup-join/"])
+            || IsTeamsJoinLink(host, path)
             || hostIs(@"chime.aws")
             || [scheme isEqualToString:@"zoommtg"]
             || [scheme isEqualToString:@"msteams"]
@@ -1272,14 +1627,16 @@ static NSURL *MeetingURLInText(NSString *text)
             || (hostIs(@"gotomeeting.com") && [path hasPrefix:@"/join"])
             || (hostIs(@"ringcentral.com") && [path hasPrefix:@"/j"])
             || (hostIs(@"bigbluebutton.org") && [path hasPrefix:@"/gl"])
-            || ([scheme isEqualToString:@"https"] && (hostHasPrefix(@"bigbluebutton.") || hostHasPrefix(@"bbb.")))
+            || (!unwrapped && [scheme isEqualToString:@"https"] && (hostHasPrefix(@"bigbluebutton.") || hostHasPrefix(@"bbb.")))
             || hostIs(@"meet.jit.si")
             || hostIs(@"indigo.collocall.de")
             || hostIs(@"public.senfcall.de")
             || (hostIs(@"facetime.apple.com") && [path hasPrefix:@"/join"])
             || (hostIs(@"workplace.com") && [path hasPrefix:@"/meet"])
             || (hostIs(@"youcanbook.me") && [path hasPrefix:@"/zoom/"])
-            || (hostIs(@"vk.com") && [path hasPrefix:@"/call/"])) {
+            || (hostIs(@"vk.com") && [path hasPrefix:@"/call/"])
+            || (hostIs(@"max.ru") && [path hasPrefix:@"/joincall/"])
+            || (hostIs(@"ktalk.ru") && ![host isEqualToString:@"ktalk.ru"] && url.pathComponents.count == 2)) {
             meetingURL = url;
             *stop = YES;
         }
@@ -1307,11 +1664,22 @@ NSURL *AppLinkForMeetingURL(NSURL *meetingURL)
             appLink = [NSURL URLWithString:link];
         }
     }
-    else if (HostIs(host, @"teams.microsoft.com") && [path hasPrefix:@"/l/meetup-join/"]) {
+    else if (IsTeamsJoinLink(host, path)) {
         // Test if user has the Teams app and, if so, create a Teams app link.
         if ([NSWorkspace.sharedWorkspace URLForApplicationToOpenURL:[NSURL URLWithString:@"msteams://"]]) {
-            link = [link stringByReplacingOccurrencesOfString:@"https://" withString:@"msteams://"];
-            appLink = [NSURL URLWithString:link];
+            // Work links become host-less (msteams:/l/..., msteams:/meet/...),
+            // the form Microsoft's browser join page uses; new Teams for Mac
+            // can ignore msteams://teams.microsoft.com/.... Personal links
+            // keep their host (msteams://teams.live.com/meet/...), which
+            // says the meeting is personal. NSURLComponents keeps the path
+            // and query percent-encoded as they were.
+            NSURLComponents *components = [NSURLComponents componentsWithURL:meetingURL resolvingAgainstBaseURL:NO];
+            components.scheme = @"msteams";
+            components.user = nil;
+            components.password = nil;
+            components.port = nil;
+            if (HostIs(host, @"teams.microsoft.com")) components.host = nil;
+            appLink = components.URL;
         }
     }
     else if (HostIs(host, @"chime.aws")) {

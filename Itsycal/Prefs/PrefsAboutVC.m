@@ -7,6 +7,8 @@
 #import "Itsycal.h"
 #import "MoTextField.h"
 #import "MoVFLHelper.h"
+#import "MoLoginItem.h"
+#import "Itsycal-Swift.h"
 
 @implementation PrefsAboutVC
 
@@ -56,14 +58,19 @@
     copyright1.textColor = [NSColor secondaryLabelColor];
     copyright2.textColor = [NSColor secondaryLabelColor];
 
-    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:box metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(appName, version, repo, upstream, forkNote, copyright1, copyright2)];
-    [vfl :@"V:|[appName]-m-[repo]-8-[upstream]-m-[forkNote]-6-[copyright1]-2-[copyright2]|"];
+    NSButton *uninstallBtn = [NSButton buttonWithTitle:NSLocalizedString(@"Clean Uninstall Itsycal…", @"") target:self action:@selector(cleanUninstallClicked:)];
+    uninstallBtn.contentTintColor = NSColor.systemRedColor;
+    [box addSubview:uninstallBtn];
+
+    MoVFLHelper *vfl = [[MoVFLHelper alloc] initWithSuperview:box metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(appName, version, repo, upstream, forkNote, copyright1, copyright2, uninstallBtn)];
+    [vfl :@"V:|[appName]-m-[repo]-8-[upstream]-m-[forkNote]-6-[copyright1]-2-[copyright2]-18-[uninstallBtn]|"];
     [vfl :@"H:|[appName]-4-[version]-(>=0)-|" :NSLayoutFormatAlignAllBaseline];
     [vfl :@"H:|[repo]-(>=0)-|"];
     [vfl :@"H:|[upstream]-(>=0)-|"];
     [vfl :@"H:|[forkNote]-(>=0)-|"];
     [vfl :@"H:|[copyright1]-(>=0)-|"];
     [vfl :@"H:|[copyright2]-(>=0)-|"];
+    [vfl :@"H:|[uninstallBtn]-(>=0)-|"];
 
     MoVFLHelper *outer = [[MoVFLHelper alloc] initWithSuperview:v metrics:@{@"m": @25} views:NSDictionaryOfVariableBindings(box)];
     [outer :@"V:|-m-[box]-m-|"];
@@ -76,6 +83,29 @@
     hug.active = YES;
 
     self.view = v;
+}
+
+- (void)cleanUninstallClicked:(id)sender
+{
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleCritical;
+    alert.messageText = NSLocalizedString(@"Clean Uninstall Itsycal?", @"");
+    alert.informativeText = NSLocalizedString(@"This will remove Itsycal's login item, preferences, Keychain API key, AI session cache, and widget container, then move Itsycal.app to the Trash and quit.", @"");
+    [alert addButtonWithTitle:NSLocalizedString(@"Uninstall & Move to Trash", @"")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"")];
+    alert.buttons.firstObject.hasDestructiveAction = YES;
+
+    if ([alert runModal] != NSAlertFirstButtonReturn) return;
+
+    MOEnableLoginItem(NO);
+    [AIAssistantBridge removeAllAppResidues];
+
+    NSURL *bundleURL = [[NSBundle mainBundle] bundleURL];
+    [[NSWorkspace sharedWorkspace] recycleURLs:@[bundleURL] completionHandler:^(NSDictionary<NSURL *,NSURL *> * _Nonnull newURLs, NSError * _Nullable error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp terminate:nil];
+        });
+    }];
 }
 
 @end

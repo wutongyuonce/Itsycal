@@ -5,6 +5,8 @@ check_dir=$(mktemp -d /tmp/itsycal-week-check.XXXXXX)
 trap 'rm -rf "$check_dir"' EXIT
 swiftc ItsycalWidgets/WeekModel.swift ItsycalWidgets/WeekPreview.swift Tests/WeekModelCheck.swift -o "$check_dir/model"
 "$check_dir/model"
+swiftc Itsycal/AIAssistant.swift Tests/AIAssistantCheck.swift -o "$check_dir/ai"
+"$check_dir/ai"
 clang -fobjc-arc -fmodules -I Tests/Stubs -I Itsycal -I Itsycal/MoCode \
   Itsycal/EventCenter.m Itsycal/ReminderRecurrence.m Itsycal/WeekSnapshot.m Itsycal/Itsycal.m Itsycal/MoCode/MoDate.m Tests/EventCenterCheck.m \
   -framework AppKit -framework EventKit -o "$check_dir/events"
