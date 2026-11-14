@@ -2,7 +2,7 @@
 
 本文是桌面小组件的现行行为契约。代码与本文冲突时以代码为事实，并同步修正本文。构建、安装与排查见 [WEEK_WIDGET_SETUP.md](WEEK_WIDGET_SETUP.md)。
 
-上游基线：`sfsam/Itsycal` `1a31050555a97e3b7aac5470ec147abfe7aa0d6a`（0.27.3）。要求 macOS 27 / Xcode 27。
+上游基线：同步至 `sfsam/Itsycal` `287576c`（0.29.0）。要求 macOS 27 / Xcode 27。
 
 ## 1. 范围与非目标
 
@@ -94,7 +94,7 @@ flowchart LR
 
 - 主应用 Bundle ID 为 `ITSYCAL_BUNDLE_ID`（默认 `com.wutongyuonce.Itsycal`），扩展为其后加 `.Widgets`（两个小组件在同一扩展内，kind 为 `ItsycalWeek` 与 `ItsycalMonth`）；显示名 Itsycal，安装为 `Itsycal.app`。
 - URL scheme `itsycal-week`。App Group 由 `WEEK_APP_GROUP` 决定（默认 `group.com.wutongyuonce.Itsycal`）。两者都由 `Local.xcconfig` 覆盖。
-- 扩展启用 sandbox；主应用不是沙盒应用。不含更新器。保留 MIT 许可与上游署名，独立演进，不自动合并上游。
+- 扩展启用 sandbox；主应用不是沙盒应用。不含更新器。保留 MIT 许可与上游署名，持续同步合并上游更新。
 
 ## 7. 验证
 

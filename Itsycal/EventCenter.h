@@ -59,6 +59,8 @@
 
 - (EKEvent *)eventWithIdentifier:(NSString *)identifier;
 - (EKReminder *)reminderWithIdentifier:(NSString *)identifier;
+- (NSArray<EKEvent *> *)eventsFromDate:(NSDate *)startDate toDate:(NSDate *)endDate;
+- (NSArray<EKReminder *> *)allIncompleteReminders;
 
 - (BOOL)removeEvent:(EKEvent *)event span:(EKSpan)span error:(NSError **)error;
 
@@ -123,7 +125,8 @@
 
 - (void)eventCenterEventsChanged;
 - (MoDate)fetchStartDate;
-- (MoDate)fetchEndDate;
+- (MoDate)fetchEndDate; // Exclusive
+- (MoDate)todayDate;    // Also fetched, for the meeting indicator
 
 @end
 

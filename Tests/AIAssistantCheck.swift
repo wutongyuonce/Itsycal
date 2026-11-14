@@ -167,6 +167,28 @@ enum AIAssistantCheck {
         assert(deletedRem.operation == .delete && deletedRem.kind == .reminder)
         assert(deletedRem.targetIdentifier == "rem-old-1" && deletedRem.title == "报销发票")
 
+        // On-demand range query provider check (historical events outside initial cached window).
+        let histDate = cal.date(from: DateComponents(year: 2022, month: 5, day: 10, hour: 14, minute: 0))!
+        let hostWithProvider = AICodeModeHostContext(
+            now: now,
+            selectedDate: now,
+            timeZone: tz,
+            calendars: host.calendars,
+            existingEvents: [],
+            queryRangeProvider: { start, end in
+                if histDate >= start && histDate < end {
+                    return [AIExistingEventSnapshot(id: "hist-2022", title: "2022 架构复盘", start: histDate, end: histDate.addingTimeInterval(3600), isAllDay: false, calendarID: "cal-work", calendarTitle: "工作", kind: .event)]
+                }
+                return []
+            }
+        )
+        let histRes = try AICodeModeRunner.run(script: """
+        const old = calendar.queryEvents('2022-05-01', '2022-05-31');
+        calendar.proposeDelete({ id: old[0].id });
+        calendar.reply(`found ${old.length}`);
+        """, host: hostWithProvider)
+        assert(histRes.reply == "found 1" && histRes.items.count == 1 && histRes.items[0].targetIdentifier == "hist-2022")
+
         // Cap check: proposing 100 items is capped at maxProposedItems (50).
         let capScript = """
         for (let i = 0; i < 80; i++) {

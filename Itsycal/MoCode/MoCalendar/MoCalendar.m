@@ -7,6 +7,7 @@
 //
 
 #import "MoCalendar.h"
+#import <QuartzCore/QuartzCore.h>
 #import "MoCalCell.h"
 #import "MoCalGrid.h"
 #import "MoButton.h"
@@ -18,9 +19,18 @@
 
 NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
+// The calendar shows this many rows (weeks) of dates.
+static const NSInteger kMinRows = 6;
+static const NSInteger kMaxRows = 10;
+
+// How long the calendar takes to snap to a whole number of rows
+// after the resize handle is let go.
+static const CFTimeInterval kSnapDuration = 0.15;
+
 @implementation MoCalendar
 {
     NSDateFormatter *_formatter;
+    NSDateFormatter *_titleFormatter; // see -monthTitle
     NSTextField *_monthLabel;
     MoCalGrid *_dateGrid;
     MoCalGrid *_weekGrid;
@@ -35,6 +45,15 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
     NSColor *_highlightColor;
     MoCalResizeHandle *_resizeHandle;
     NSInteger _repeatCount;
+
+    // While the resize handle is dragged, and then while the calendar
+    // snaps to whole rows, these set the date and week grids' height.
+    NSLayoutConstraint *_dateGridHeight;
+    NSLayoutConstraint *_weekGridHeight;
+    CADisplayLink *_snapLink;
+    CFTimeInterval _snapStartTime;
+    CGFloat _snapStartHeight;
+    NSInteger _snapRows;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -57,7 +76,7 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
 - (void)commonInitForMoCalendar
 {
-    _formatter = [NSDateFormatter new];
+    [self makeFormatters];
 
     _monthLabel = [NSTextField labelWithString:@""];
     _monthLabel.font = [NSFont systemFontOfSize:SizePref.calendarTitleFontSize weight:NSFontWeightSemibold];
@@ -85,7 +104,7 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
     _btnNext  = btn(@"btnNext",  @selector(showNextMonth:));
 
     NSInteger numRows = [[NSUserDefaults standardUserDefaults] integerForKey:kMoCalendarNumRows];
-    numRows = MIN(MAX(numRows, 6), 10);
+    numRows = MIN(MAX(numRows, kMinRows), kMaxRows);
     
     _dateGrid = [[MoCalGrid alloc] initWithRows:numRows columns:7 horizontalMargin:6 verticalMargin:6];
     _weekGrid = [[MoCalGrid alloc] initWithRows:numRows columns:1 horizontalMargin:0 verticalMargin:6];
@@ -157,9 +176,11 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
     // day it's over. Forget it, so resting on that day after the window
     // shows again gets its tooltip (and the day isn't left hovered).
     // (The tooltip controller hides the tooltip itself.)
-    if (!(self.window.occlusionState & NSWindowOcclusionStateVisible) && _hoveredCell) {
+    if (!(self.window.occlusionState & NSWindowOcclusionStateVisible)) {
         _hoveredCell.isHovered = NO;
         _hoveredCell = nil;
+        // A drag or snap can't go on while the window is hidden. End it.
+        [self finishResizing];
     }
 }
 
@@ -507,30 +528,10 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
 - (void)mouseDown:(NSEvent *)theEvent
 {
-    CGFloat sz = SizePref.cellSize;
-    NSPoint initialDragPoint = [self convertPoint:[theEvent locationInWindow] fromView:nil];
-    BOOL isDragging = NSPointInRect(initialDragPoint, _resizeHandle.frame);
-
-    while (isDragging) {
-        theEvent = [[self window] nextEventMatchingMask: NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
-        if ([theEvent type] == NSEventTypeLeftMouseUp) {
-            isDragging = NO;
-        }
-        else if ([theEvent type] == NSEventTypeLeftMouseDragged) {
-            NSPoint location = [self convertPoint:[theEvent locationInWindow] fromView:nil];
-            if (location.y >= initialDragPoint.y + sz && _dateGrid.rows > 6) {
-                [self removeRow];
-            }
-            else if (location.y <= initialDragPoint.y - sz && _dateGrid.rows < 10) {
-                [self addRow];
-            }
-        }
+    NSPoint location = [self convertPoint:[theEvent locationInWindow] fromView:nil];
+    if (NSPointInRect(location, _resizeHandle.frame)) {
+        [self dragResizeHandle];
     }
-
-    // Dim resizeHandle if drag ends outside of it (-mouseExited: won't catch this).
-    NSPoint finalDragPoint = [self convertPoint:[theEvent locationInWindow] fromView:nil];
-    BOOL isInResizeHandle = NSPointInRect(finalDragPoint, _resizeHandle.frame);
-    [_resizeHandle dim:!isInResizeHandle];
 }
 
 - (void)mouseUp:(NSEvent *)theEvent
@@ -709,8 +710,33 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
 - (NSString *)monthTitle
 {
-    NSArray *months = [_formatter shortMonthSymbols];
-    NSString *title = [NSString stringWithFormat:@"%@ %zd", months[self.monthDate.month], self.monthDate.year];
+    NSString *title;
+    NSCalendarIdentifier identifier = NSCalendar.currentCalendar.calendarIdentifier;
+    if ([identifier isEqualToString:NSCalendarIdentifierBuddhist] ||
+        [identifier isEqualToString:NSCalendarIdentifierJapanese] ||
+        [identifier isEqualToString:NSCalendarIdentifierRepublicOfChina]) {
+        // These calendars have Gregorian months and days; only the year
+        // (and era) is written differently. Let the system write it in
+        // the user's calendar: "Apr 2569 BE", "เม.ย. 2569", "令和8年4月",
+        // "民國 115年4月". The Japanese era can change mid-month, so
+        // this shows the era of the 1st, like Calendar.app.
+        if (_titleFormatter == nil) {
+            _titleFormatter = [NSDateFormatter new];
+            _titleFormatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+            _titleFormatter.formattingContext = NSFormattingContextStandalone;
+            [_titleFormatter setLocalizedDateFormatFromTemplate:@"MMMy"];
+        }
+        NSCalendar *gregorian = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+        gregorian.timeZone = _titleFormatter.timeZone;
+        NSDate *first = [gregorian dateWithEra:1 year:self.monthDate.year month:self.monthDate.month+1 day:1 hour:12 minute:0 second:0 nanosecond:0];
+        title = [_titleFormatter stringFromDate:first];
+    }
+    else {
+        // Gregorian, ISO 8601, or a calendar whose months don't line up
+        // with the grid (Hebrew, Islamic, ...): Gregorian month and year.
+        NSArray *months = [_formatter shortMonthSymbols];
+        title = [NSString stringWithFormat:@"%@ %zd", months[self.monthDate.month], self.monthDate.year];
+    }
 #ifdef DEBUG
     // Mark debug builds so they're easy to tell apart from release builds.
     title = [title stringByAppendingString:@" ✱"];
@@ -758,8 +784,22 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
 - (void)handleLocaleNotification:(NSNotification *)notification
 {
-    // Redraw calendar with locale-specific month and DOW headers
+    // Redraw calendar with locale-specific month and DOW headers.
+    [self makeFormatters];
     [self updateCalendar];
+}
+
+- (void)makeFormatters
+{
+    // A formatter keeps the locale it was made with, so make new ones
+    // when the user's language, region or calendar changes.
+    _formatter = [NSDateFormatter new];
+    // The grid is Gregorian, so its month names must be too. With, say,
+    // Hebrew as the user's calendar, -shortMonthSymbols would otherwise
+    // return the Hebrew calendar's months.
+    _formatter.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+    // Made on demand in -monthTitle.
+    _titleFormatter = nil;
 }
 
 // Helper function to determine if a given column in the
@@ -772,28 +812,153 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
 
 - (void)addRow
 {
-    if (_dateGrid.rows < 10) {
-        [_dateGrid addRow];
-        [_weekGrid addRow];
-        [self updateCalendar];
-        [[NSUserDefaults standardUserDefaults] setInteger:_dateGrid.rows forKey:kMoCalendarNumRows];
-    }
+    [self finishResizing];
+    [self setNumRows:_dateGrid.rows + 1 save:YES];
 }
 
 - (void)removeRow
 {
-    if (_dateGrid.rows > 6) {
-        // Move selection up one row (-7 days) if it is
-        // in the row that is about to be removed.
-        NSUInteger selectedCellIndex = [_dateGrid.cells indexOfObject:_selectedCell];
-        if (selectedCellIndex >= _dateGrid.cells.count - 7) {
-            [self moveSelectionByDays:-7];
+    [self finishResizing];
+    [self setNumRows:_dateGrid.rows - 1 save:YES];
+}
+
+- (void)setNumRows:(NSInteger)rows save:(BOOL)save
+{
+    rows = MIN(MAX(rows, kMinRows), kMaxRows);
+    if (rows != _dateGrid.rows) {
+        while (_dateGrid.rows > rows) {
+            // Move selection up one row (-7 days) if it is
+            // in the row that is about to be removed.
+            NSUInteger selectedCellIndex = [_dateGrid.cells indexOfObject:_selectedCell];
+            if (selectedCellIndex != NSNotFound && selectedCellIndex >= _dateGrid.cells.count - 7) {
+                [self moveSelectionByDays:-7];
+            }
+            [_dateGrid removeRow];
+            [_weekGrid removeRow];
         }
-        [_dateGrid removeRow];
-        [_weekGrid removeRow];
+        while (_dateGrid.rows < rows) {
+            [_dateGrid addRow];
+            [_weekGrid addRow];
+        }
         [self updateCalendar];
-        [[NSUserDefaults standardUserDefaults] setInteger:_dateGrid.rows forKey:kMoCalendarNumRows];
     }
+    if (save) {
+        [[NSUserDefaults standardUserDefaults] setInteger:rows forKey:kMoCalendarNumRows];
+    }
+}
+
+#pragma mark
+#pragma mark Resize handle
+
+- (void)dragResizeHandle
+{
+    // The calendar follows the pointer: its grids are as tall as the
+    // drag makes them, with at least enough rows to fill them; the rows
+    // that don't fit are cut off. (The window resizes to fit.) When the
+    // handle is let go, the calendar snaps to the nearest whole row.
+    // The week grid's rows match the date grid's, so it gets the date
+    // grid's heights.
+    [self.tooltipController hideImmediately];
+    [_resizeHandle dim:NO];
+
+    CGFloat startHeight;
+    if (_dateGridHeight) {
+        // The calendar is snapping from the last drag. Stop and
+        // continue from where it is, which is under the pointer.
+        [_snapLink invalidate];
+        _snapLink = nil;
+        startHeight = _dateGridHeight.constant;
+    }
+    else {
+        startHeight = [_dateGrid heightForRows:_dateGrid.rows];
+        _dateGridHeight = [_dateGrid.heightAnchor constraintEqualToConstant:startHeight];
+        _weekGridHeight = [_weekGrid.heightAnchor constraintEqualToConstant:startHeight];
+        _dateGridHeight.active = YES;
+        _weekGridHeight.active = YES;
+        // If the drag is cut short (see -finishResizing), keep the rows.
+        // (A drag that takes over a snap keeps the snap's rows instead.)
+        _snapRows = _dateGrid.rows;
+    }
+
+    // Use the pointer's location on the screen: the window
+    // moves in the screen as it resizes, so its coordinates do too.
+    CGFloat startY = [NSEvent mouseLocation].y;
+    CGFloat minHeight = [_dateGrid heightForRows:kMinRows];
+    CGFloat maxHeight = [_dateGrid heightForRows:kMaxRows];
+    CGFloat height = startHeight;
+    // The loop ends early if the window hides (see -finishResizing).
+    while (_dateGridHeight) {
+        NSEvent *event = [self.window nextEventMatchingMask:NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
+        if (event.type == NSEventTypeLeftMouseUp) {
+            break;
+        }
+        // Whole points keep the cells on whole points, which
+        // -bezierPathWithStartCell:... needs to step through rows.
+        height = round(startHeight + startY - [NSEvent mouseLocation].y);
+        height = MIN(MAX(height, minHeight), maxHeight);
+        [self setGridHeight:height];
+    }
+    if (!_dateGridHeight) {
+        return; // The window hid during the drag.
+    }
+
+    _snapRows = MIN(MAX(lround([_dateGrid rowsForHeight:height]), kMinRows), kMaxRows);
+    _snapStartHeight = height;
+    _snapStartTime = CACurrentMediaTime();
+    _snapLink = [self displayLinkWithTarget:self selector:@selector(snapStep:)];
+    [_snapLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+
+- (void)setGridHeight:(CGFloat)height
+{
+    if (!_dateGridHeight) {
+        return; // -finishResizing ended the resize.
+    }
+    _dateGridHeight.constant = height;
+    _weekGridHeight.constant = height;
+    // Add rows to fill the height. (Allow for rounding so a height of
+    // exactly n rows doesn't need n + 1.) Don't remove rows: the extra
+    // ones are cut off, and -finishResizing removes them. So a row that
+    // a drag hides and shows again doesn't move the selection, which
+    // removing the selected day's row does.
+    NSInteger rows = ceil([_dateGrid rowsForHeight:height] - 0.001);
+    if (rows > (NSInteger)_dateGrid.rows) {
+        [self setNumRows:rows save:NO];
+    }
+}
+
+- (void)snapStep:(CADisplayLink *)link
+{
+    CGFloat t = (CACurrentMediaTime() - _snapStartTime) / kSnapDuration;
+    if (t >= 1) {
+        [self finishResizing];
+        return;
+    }
+    CGFloat eased = 1 - pow(1 - t, 3); // ease out
+    CGFloat endHeight = [_dateGrid heightForRows:_snapRows];
+    [self setGridHeight:round(_snapStartHeight + (endHeight - _snapStartHeight) * eased)];
+}
+
+// End a resize-handle drag's snap, if one is in progress, at
+// the number of rows it's snapping to, and save that number.
+- (void)finishResizing
+{
+    [_snapLink invalidate];
+    _snapLink = nil;
+    if (!_dateGridHeight) {
+        return;
+    }
+    _dateGridHeight.active = NO;
+    _weekGridHeight.active = NO;
+    _dateGridHeight = nil;
+    _weekGridHeight = nil;
+    [self setNumRows:_snapRows save:YES];
+
+    // The snap may have moved the handle out from under the pointer,
+    // which -mouseExited: won't catch, so dim the handle if it did.
+    [self.window layoutIfNeeded];
+    NSPoint location = [self convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil];
+    [_resizeHandle dim:!NSPointInRect(location, _resizeHandle.frame)];
 }
 
 #pragma mark
@@ -857,8 +1022,8 @@ NSString * const kMoCalendarNumRows = @"MoCalendarNumRows";
     
     // First get the frame rects of the start and end cells in self view coordinates.
     
-    NSRect startRect = [self convertRect:startCell.frame fromView:_dateGrid];
-    NSRect endRect   = [self convertRect:endCell.frame fromView:_dateGrid];
+    NSRect startRect = [self convertRect:startCell.bounds fromView:startCell];
+    NSRect endRect   = [self convertRect:endCell.bounds fromView:endCell];
     startRect = NSInsetRect(startRect, inset, inset);
     endRect   = NSInsetRect(endRect, inset, inset);
     

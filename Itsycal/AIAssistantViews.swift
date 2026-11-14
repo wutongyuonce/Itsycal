@@ -114,6 +114,7 @@ import SwiftUI
     func aiSelectedDate() -> Date
     func aiAvailableCalendars() -> [AICalendarOptionObjC]
     func aiExistingItems() -> [AIExistingItemObjC]
+    func aiQueryItems(from startDate: Date, to endDate: Date) -> [AIExistingItemObjC]
     func aiCommitItems(_ items: [AICommitItemObjC], completion: @escaping (Bool, String?) -> Void)
     func aiOpenSettings()
     func aiClosePopover()
@@ -295,29 +296,36 @@ final class AIAssistantViewModel: ObservableObject {
             )
         }
         let rawExisting = hostDelegate?.aiExistingItems() ?? []
-        let existing = rawExisting.map { item -> AIExistingEventSnapshot in
-            let srgb = item.color.usingColorSpace(.sRGB) ?? item.color
-            var r: CGFloat = 0.2, g: CGFloat = 0.5, b: CGFloat = 0.95, a: CGFloat = 1
-            srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
-            return AIExistingEventSnapshot(
-                id: item.identifier,
-                title: item.title,
-                start: item.startDate,
-                end: item.endDate,
-                isAllDay: item.isAllDay,
-                calendarID: item.calendarID,
-                calendarTitle: item.calendarTitle,
-                colorRGB: [Double(r), Double(g), Double(b)],
-                kind: item.isReminder ? .reminder : .event
-            )
-        }
+        let existing = rawExisting.map { Self.mapExistingItem($0) }
+        weak var weakDelegate = hostDelegate
         return AICodeModeHostContext(
             now: Date(),
             selectedDate: selectedDate,
             timeZone: .current,
             calendars: calendars,
             existingEvents: existing,
-            currentDrafts: drafts
+            currentDrafts: drafts,
+            queryRangeProvider: { start, end in
+                let raw = weakDelegate?.aiQueryItems(from: start, to: end) ?? []
+                return raw.map { Self.mapExistingItem($0) }
+            }
+        )
+    }
+
+    nonisolated private static func mapExistingItem(_ item: AIExistingItemObjC) -> AIExistingEventSnapshot {
+        let srgb = item.color.usingColorSpace(.sRGB) ?? item.color
+        var r: CGFloat = 0.2, g: CGFloat = 0.5, b: CGFloat = 0.95, a: CGFloat = 1
+        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return AIExistingEventSnapshot(
+            id: item.identifier,
+            title: item.title,
+            start: item.startDate,
+            end: item.endDate,
+            isAllDay: item.isAllDay,
+            calendarID: item.calendarID,
+            calendarTitle: item.calendarTitle,
+            colorRGB: [Double(r), Double(g), Double(b)],
+            kind: item.isReminder ? .reminder : .event
         )
     }
 

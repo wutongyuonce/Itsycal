@@ -329,6 +329,7 @@ public struct AICodeModeHostContext: Sendable {
     public let calendars: [AICalendarDescriptor]
     public let existingEvents: [AIExistingEventSnapshot]
     public let currentDrafts: [AIProposedItem]
+    public let queryRangeProvider: (@Sendable (Date, Date) -> [AIExistingEventSnapshot])?
 
     public init(
         now: Date,
@@ -336,7 +337,8 @@ public struct AICodeModeHostContext: Sendable {
         timeZone: TimeZone = .current,
         calendars: [AICalendarDescriptor],
         existingEvents: [AIExistingEventSnapshot],
-        currentDrafts: [AIProposedItem] = []
+        currentDrafts: [AIProposedItem] = [],
+        queryRangeProvider: (@Sendable (Date, Date) -> [AIExistingEventSnapshot])? = nil
     ) {
         self.now = now
         self.selectedDate = selectedDate
@@ -344,6 +346,7 @@ public struct AICodeModeHostContext: Sendable {
         self.calendars = calendars
         self.existingEvents = existingEvents
         self.currentDrafts = currentDrafts
+        self.queryRangeProvider = queryRangeProvider
     }
 }
 
@@ -478,10 +481,30 @@ public enum AICodeModeRunner {
             return remCals.first ?? AICalendarDescriptor(id: "default-reminder", title: "提醒事项", source: "Local", allowsEvents: false, allowsReminders: true)
         }
 
+        var queriedPool: [AIExistingEventSnapshot] = host.existingEvents
+
+        func fetchAndMergePool(start: Date, end: Date) -> [AIExistingEventSnapshot] {
+            if let provider = host.queryRangeProvider {
+                let fetched = provider(start, end)
+                for item in fetched {
+                    if !queriedPool.contains(where: { (!$0.id.isEmpty && $0.id == item.id && $0.start == item.start) || ($0.title == item.title && $0.start == item.start && $0.kind == item.kind) }) {
+                        queriedPool.append(item)
+                    }
+                }
+                return fetched
+            }
+            return host.existingEvents.filter { ev in
+                ev.start < end && ev.end >= start
+            }
+        }
+
         func detectConflicts(start: Date, end: Date, isAllDay: Bool) -> [String] {
             guard !isAllDay else { return [] }
+            let dayStart = calFormat.startOfDay(for: start)
+            let dayEnd = calFormat.date(byAdding: .day, value: 2, to: calFormat.startOfDay(for: end)) ?? end.addingTimeInterval(86400)
+            let pool = fetchAndMergePool(start: dayStart, end: dayEnd)
             var conflicts: [String] = []
-            for ev in host.existingEvents where ev.kind == .event && !ev.isAllDay {
+            for ev in pool where ev.kind == .event && !ev.isAllDay {
                 if start < ev.end && end > ev.start {
                     if !conflicts.contains(ev.title) {
                         conflicts.append(ev.title)
@@ -521,9 +544,7 @@ public enum AICodeModeRunner {
         let queryEventsBlock: @convention(block) (JSValue?, JSValue?) -> NSArray = { startVal, endVal in
             let startDate = parseDate(startVal?.toString())?.date ?? calFormat.startOfDay(for: host.now)
             let endDate = parseDate(endVal?.toString())?.date ?? calFormat.date(byAdding: .day, value: 14, to: startDate)!
-            let matches = host.existingEvents.filter { ev in
-                ev.start < endDate && ev.end >= startDate
-            }.map { ev -> [String: Any] in
+            let matches = fetchAndMergePool(start: startDate, end: endDate).map { ev -> [String: Any] in
                 [
                     "id": ev.id,
                     "title": ev.title,
@@ -680,11 +701,16 @@ public enum AICodeModeRunner {
             let wantKind: AIProposedKind? = rawKind == "reminder" ? .reminder : (rawKind == "event" ? .event : nil)
 
             var matched: AIExistingEventSnapshot?
+            if let targetDate = parsedStart?.date {
+                let dayStart = calFormat.startOfDay(for: targetDate)
+                let dayEnd = calFormat.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart.addingTimeInterval(86400)
+                _ = fetchAndMergePool(start: dayStart, end: dayEnd)
+            }
             if let rawID, !rawID.isEmpty {
-                matched = host.existingEvents.first(where: { $0.id == rawID })
+                matched = queriedPool.first(where: { $0.id == rawID })
             }
             if matched == nil, let rawTitle, !rawTitle.isEmpty {
-                let candidates = host.existingEvents.filter {
+                let candidates = queriedPool.filter {
                     (wantKind == nil || $0.kind == wantKind) &&
                     ($0.title.caseInsensitiveCompare(rawTitle) == .orderedSame ||
                      $0.title.localizedCaseInsensitiveContains(rawTitle))

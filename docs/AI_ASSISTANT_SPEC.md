@@ -31,7 +31,7 @@
 - **场景 2：自然语言生成日程与提醒增删草稿（CodeMode）**
   - 参与者：用户、`AIAssistantPopoverView`、`AIAssistantViewModel`、`AICodeModeRunner`、`EventCenter`。
   - 前置状态：已完成 AI 配置。
-  - 操作顺序：点击主窗口 AI 按钮（`⌘K`）在主窗口左侧打开弹窗 -> 输入自然语言需求并发送 -> LLM 生成 JavaScript 代码 -> `AICodeModeRunner` 在内存隔离的 `JSContext` 中执行脚本，调用宿主提供的只读查询工具（`getContext`、`listCalendars`、`queryEvents`、`getDrafts`）与草稿提议工具（`proposeEvent`、`proposeReminder`、`proposeDelete`） -> UI 展示待执行的卡片列表。
+  - 操作顺序：点击主窗口 AI 按钮（`⌘K`）在主窗口左侧打开弹窗 -> 输入自然语言需求并发送 -> LLM 生成 JavaScript 代码 -> `AICodeModeRunner` 在内存隔离的 `JSContext` 中执行脚本，调用宿主提供的只读查询工具（`getContext`、`listCalendars`、`queryEvents`、`getDrafts`）与草稿提议工具（`proposeEvent`、`proposeReminder`、`proposeDelete`） -> UI 展示待执行的卡片列表。其中 `queryEvents(startISO, endISO)` 通过 `EventCenter` 的 `-eventsFromDate:toDate:`（对超过 3 年跨度自动按 3 年窗口分片查询以规避 EventKit 4 年截断限制）与 `-allIncompleteReminders` 支持查询任意历史或未来区间的事件与提醒事项。
   - 结果：未直接改动 `EKEventStore`，仅在弹窗中展示结构化预览卡片（区分新增日程、新增提醒、删除项、目标日历颜色、时间、重复规则及冲突标记）。
 - **场景 3：多轮自然语言微调草稿**
   - 参与者：用户、`AIAssistantPopoverView`、`AIAssistantViewModel`。
